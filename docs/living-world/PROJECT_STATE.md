@@ -143,22 +143,22 @@ Phase 4 establishes the authoritative event ledger, narrative turn savepoint mod
 - **Database Boundary Enforcement (Exactly 16 Triggers)**:
   1. `trg_lws_events_immutable_all`: Rejects direct `UPDATE` on `lws_events`.
   2. `trg_lws_events_no_delete`: Rejects direct `DELETE` on `lws_events`.
-  3. `trg_lws_events_sequence_monotonic`: Enforces monotonic sequence increments.
-  4. `trg_lws_events_fictional_time_matches_sim`: Enforces that event `fictional_time` matches simulation clock.
-  5. `trg_lws_events_same_sim_actor`: Enforces that `actor_character_id` belongs to the same simulation.
-  6. `trg_lws_events_same_sim_target`: Enforces that `target_character_id` belongs to the same simulation.
-  7. `trg_lws_events_same_world_location`: Enforces that `location_id` belongs to the simulation's world.
-  8. `trg_lws_events_same_sim_turn`: Enforces that `narrative_turn_id` belongs to the same simulation.
-  9. `trg_lws_events_causal_integrity`: Enforces that `causal_event_id` belongs to the same simulation and has a strictly preceding sequence.
-  10. `trg_lws_events_start_actor_prohibited`: Prohibits `actor_character_id` on `SIMULATION_START`.
-  11. `trg_lws_events_start_location_prohibited`: Prohibits `location_id` on `SIMULATION_START`.
-  12. `trg_lws_events_join_authored_required`: Requires valid `payload.character_id` on `CHARACTER_JOIN`.
-  13. `trg_lws_events_stop_reason_required`: Requires non-empty string `payload.reason` on `SIMULATION_STOP`.
-  14. `trg_lws_narrative_turns_status_terminal`: Enforces terminal statuses (`committed` and `rejected` cannot be updated).
-  15. `trg_lws_narrative_turns_immutable_fields`: Prohibits modifying immutable fields (`simulation_id`, `turn_number`, `prompt_message_id`, `user_message_id`) on narrative turns.
+  3. `trg_lws_events_same_sim_actor`: Enforces that `actor_character_id` belongs to the same simulation as the event.
+  4. `trg_lws_events_same_sim_target`: Enforces that `target_character_id` belongs to the same simulation as the event.
+  5. `trg_lws_events_same_world_authored`: Enforces that `authored_character_id` belongs to the same world as the simulation.
+  6. `trg_lws_events_same_world_location`: Enforces that `location_id` belongs to the same world as the simulation.
+  7. `trg_lws_events_fictional_time_matches_sim`: Enforces that event `fictional_time` matches parent simulation `current_fictional_time`.
+  8. `trg_lws_events_causal_integrity`: Enforces that `causal_event_id` belongs to the same simulation and has a strictly preceding sequence (`sequence_number < NEW.sequence_number`).
+  9. `trg_lws_events_same_sim_turn`: Enforces that `turn_id` belongs to the same simulation as the event.
+  10. `trg_lws_events_char_actor_required`: Requires `actor_character_id` on character-specific state events.
+  11. `trg_lws_events_start_actor_prohibited`: Prohibits `actor_character_id` or `target_character_id` on `SIMULATION_START`.
+  12. `trg_lws_events_join_authored_required`: Requires `authored_character_id` on `CHARACTER_JOIN`.
+  13. `trg_lws_narrative_turns_sim_immutable`: Prohibits mutating `simulation_id` on narrative turns.
+  14. `trg_lws_narrative_turns_turn_num_immutable`: Prohibits mutating `turn_number` on narrative turns.
+  15. `trg_lws_narrative_turns_terminal_immutable`: Enforces terminal turn states (`committed`, `rejected`, `failed` turns cannot be mutated).
   16. `trg_lws_narrative_turns_no_delete`: Rejects direct `DELETE` on narrative turns.
 - **Indexes (Exactly 7 Indexes)**:
-  - `idx_lws_events_sim_seq` (unique), `idx_lws_events_sim_type`, `idx_lws_events_sim_actor`, `idx_lws_events_turn`, `idx_lws_events_idempotency`, `idx_lws_narrative_turns_sim`, `idx_lws_narrative_turns_sim_turn` (unique).
+  - `idx_lws_events_sim_seq` (unique), `idx_lws_events_sim_time`, `idx_lws_events_actor`, `idx_lws_events_authored_char`, `idx_lws_events_idempotency` (unique), `idx_lws_events_turn`, `idx_lws_narrative_turns_sim_turn` (unique).
 - **Closed 29-Event Taxonomy**:
   - 23 active Phase 4 events, 6 deferred Phase 5 events, exactly 13 stateful events projecting into SQLite runtime tables.
 - **Four-Stage Authority Evaluation Pipeline**:
@@ -169,9 +169,9 @@ Phase 4 establishes the authoritative event ledger, narrative turn savepoint mod
   - Transaction A commits turn record; Transaction B runs under `SAVEPOINT proposal_batch`. Failures roll back proposal mutations while preserving durable rejected turn audits with `error_details` (HTTP 422).
 - **Pure In-Memory Zero-SQL Replay Engine**:
   - `replaySimulation(events)` folds event history in pure memory without SQL queries.
-  - `verifySimulationParity(simLwsId)` verifies 100% attribute parity against projected SQLite rows.
+  - `verifySimulationParity(simLwsId)` verifies 100% attribute parity against projected SQLite rows via `POST /api/living-world/simulations/:simLwsId/replay-verify`.
 - **REST API (7 Endpoints)**:
-  - Mounts narrative turn execution, queries, event emission, listing, detail, and replay parity endpoints under `/api/living-world/simulations/:simLwsId/*`.
+  - Mounts narrative turn execution, queries, event emission, listing, detail, and replay verification (`POST .../replay-verify`) endpoints under `/api/living-world/simulations/:simLwsId/*`.
 
 #### 2. Future Scope Distinction (Phase 5+)
 - **Phase 5 Future Scope**: Fictional time progression engine, scheduled routines, and travel calculation across space. Current fictional time advances only via explicit event commits.

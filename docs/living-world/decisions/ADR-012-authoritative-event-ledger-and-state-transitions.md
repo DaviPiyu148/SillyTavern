@@ -20,7 +20,7 @@ We adopt an **Authoritative Event Ledger and State Transition Architecture**:
 1. **Authoritative Event Ledger (`lws_events`)**:
    - Simulation state mutations are driven strictly by committing events to `lws_events`.
    - The ledger is strictly append-only. Triggers `trg_lws_events_immutable_all` and `trg_lws_events_no_delete` prevent any `UPDATE` or `DELETE` at the database engine boundary.
-   - Events are strictly sequenced per simulation (`simulation_id`, `sequence`), with database trigger `trg_lws_events_sequence_monotonic` enforcing unbroken incremental sequencing.
+   - Events are strictly sequenced per simulation (`simulation_id`, `sequence_number`), with unique index `idx_lws_events_sim_seq` and monotonic sequence generation enforcing unbroken incremental sequencing.
    - Content-addressable SHA-256 idempotency fingerprinting prevents duplicate event application upon retries.
 
 2. **Closed 29-Event Taxonomy**:
@@ -29,7 +29,7 @@ We adopt an **Authoritative Event Ledger and State Transition Architecture**:
 
 3. **Four-Stage Authority Evaluation Pipeline**:
    - **Stage 1 (Schema Validation)**: Validates required payload fields, type correctness, and rejects unknown properties.
-   - **Stage 2 (Structural & Provenance Checks)**: Authenticates provenance; enforces that `system` and `simulation_engine` provenances cannot be forged by external callers, and `director` requires admin privileges. Verifies character-actor simulation membership and spatial collocation where required.
+   - **Stage 2 (Structural & Provenance Checks)**: Authenticates provenance; enforces that `system` and `simulation_engine` provenances cannot be forged by external callers, and `director` requires admin privileges (`req.user?.profile?.admin === true`). Verifies character-actor simulation membership and spatial collocation where required.
    - **Stage 3 (Domain Validation)**: Evaluates status transition legality, prevents assigning soft-deleted locations, and verifies clock synchronization against the simulation clock.
    - **Stage 4 (Authority Decision)**: Authorizes and commits the event or rejects it with structured error codes and domain failure details.
 
@@ -38,7 +38,7 @@ We adopt an **Authoritative Event Ledger and State Transition Architecture**:
    - **Transaction B**: Establishes `SAVEPOINT proposal_batch`. Evaluates and executes proposed events and projects state transitions.
      - On success: Releases savepoint, transitions turn status to `committed`, and commits Transaction B.
      - On failure: Executes `ROLLBACK TO SAVEPOINT`, releases savepoint, transitions turn status to `rejected`, stores `error_details`, and commits Transaction B. Durable rejection auditing is preserved without rolling back turn history.
-   - Triggers `trg_lws_narrative_turns_status_terminal` and `trg_lws_narrative_turns_no_delete` guarantee narrative turn immutability once finalized.
+   - Triggers `trg_lws_narrative_turns_terminal_immutable` and `trg_lws_narrative_turns_no_delete` guarantee narrative turn immutability once finalized.
 
 5. **Elimination of Phase 3 Mutation Bypasses**:
    - All Phase 3 simulation and simulation-character mutation functions (`updateSimulation`, `deleteSimulation`, `addSimulationCharacter`, `updateSimulationCharacter`, `deleteSimulationCharacter`) are refactored to delegate strictly through `commitEvent`.

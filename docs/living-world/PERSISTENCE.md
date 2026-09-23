@@ -109,31 +109,32 @@ Schema changes require explicit, versioned migrations and verification.
     - Sets `deleted_at = isoNow()` and `updated_at = isoNow()` on `lws_simulations`.
     - Child `lws_simulation_characters` rows remain physically intact and unchanged in SQLite for auditability and future replay; child routes under `/simulations/:simLwsId/characters/*` return HTTP 404 via parent simulation status gating.
 - `004_events_and_authority`: Authoritative event ledger, narrative turns, and state transition integrity (`user_version = 4`):
-  - 2 tables: `lws_narrative_turns` (turn tracking, prompt/user message references, turn status: pending, committed, rejected, error_details, extensions) and `lws_events` (canonical append-only event ledger: simulation_id, sequence, event_type, fictional_time, actor_character_id, target_character_id, location_id, narrative_turn_id, causal_event_id, payload, provenance, idempotency_key, created_at).
+  - 2 tables: `lws_narrative_turns` (turn tracking, user input, model outputs, turn status: pending, committed, rejected, failed, error_details, model_info) and `lws_events` (canonical append-only event ledger: id, lws_id, simulation_id, sequence_number, event_type, fictional_time, actor_character_id, target_character_id, authored_character_id, location_id, payload, provenance, causal_event_id, turn_id, idempotency_key, created_at).
   - Exactly 16 database triggers:
     1. `trg_lws_events_immutable_all`: Prohibits direct `UPDATE` on `lws_events`.
     2. `trg_lws_events_no_delete`: Prohibits direct `DELETE` on `lws_events`.
-    3. `trg_lws_events_sequence_monotonic`: Enforces monotonic sequence increments (`NEW.sequence = IFNULL(MAX(sequence), 0) + 1`).
-    4. `trg_lws_events_fictional_time_matches_sim`: Enforces that event `fictional_time` matches parent simulation `current_fictional_time`.
-    5. `trg_lws_events_same_sim_actor`: Enforces that `actor_character_id` belongs to the same simulation.
-    6. `trg_lws_events_same_sim_target`: Enforces that `target_character_id` belongs to the same simulation.
-    7. `trg_lws_events_same_world_location`: Enforces that `location_id` belongs to the same world as the simulation.
-    8. `trg_lws_events_same_sim_turn`: Enforces that `narrative_turn_id` belongs to the same simulation.
-    9. `trg_lws_events_causal_integrity`: Enforces that `causal_event_id` belongs to the same simulation and has a strictly preceding sequence (`< NEW.sequence`).
-    10. `trg_lws_events_start_actor_prohibited`: Prohibits `actor_character_id` on `SIMULATION_START`.
-    11. `trg_lws_events_start_location_prohibited`: Prohibits `location_id` on `SIMULATION_START`.
-    12. `trg_lws_events_join_authored_required`: Requires valid JSON `payload.character_id` on `CHARACTER_JOIN`.
-    13. `trg_lws_events_stop_reason_required`: Requires non-empty string `payload.reason` on `SIMULATION_STOP`.
-    14. `trg_lws_narrative_turns_status_terminal`: Enforces narrative turn terminal states (`committed` and `rejected` cannot be modified).
-    15. `trg_lws_narrative_turns_immutable_fields`: Prohibits modifying immutable fields (`simulation_id`, `turn_number`, `prompt_message_id`, `user_message_id`) on narrative turns.
+    3. `trg_lws_events_same_sim_actor`: Enforces that `actor_character_id` belongs to the same simulation as the event.
+    4. `trg_lws_events_same_sim_target`: Enforces that `target_character_id` belongs to the same simulation as the event.
+    5. `trg_lws_events_same_world_authored`: Enforces that `authored_character_id` belongs to the same world as the simulation.
+    6. `trg_lws_events_same_world_location`: Enforces that `location_id` belongs to the same world as the simulation.
+    7. `trg_lws_events_fictional_time_matches_sim`: Enforces that event `fictional_time` matches parent simulation `current_fictional_time`.
+    8. `trg_lws_events_causal_integrity`: Enforces that `causal_event_id` belongs to the same simulation and has a strictly preceding sequence (`sequence_number < NEW.sequence_number`).
+    9. `trg_lws_events_same_sim_turn`: Enforces that `turn_id` belongs to the same simulation as the event.
+    10. `trg_lws_events_char_actor_required`: Requires `actor_character_id` on character-specific state events (`MOVE_CHARACTER`, `UPDATE_CHARACTER_ACTIVITY`, `UPDATE_PHYSICAL_CONDITION`, `UPDATE_RUNTIME_STATE`, `CHARACTER_LEAVE`, `REST`, `WORK`, `CONSUME_ITEM`).
+    11. `trg_lws_events_start_actor_prohibited`: Prohibits `actor_character_id` or `target_character_id` on `SIMULATION_START`.
+    12. `trg_lws_events_join_authored_required`: Requires `authored_character_id` on `CHARACTER_JOIN`.
+    13. `trg_lws_narrative_turns_sim_immutable`: Prohibits mutating `simulation_id` on narrative turns.
+    14. `trg_lws_narrative_turns_turn_num_immutable`: Prohibits mutating `turn_number` on narrative turns.
+    15. `trg_lws_narrative_turns_terminal_immutable`: Enforces terminal turn states (`committed`, `rejected`, `failed` turns cannot be mutated).
     16. `trg_lws_narrative_turns_no_delete`: Prohibits direct `DELETE` on narrative turns.
   - Exactly 7 indexes:
-    1. `idx_lws_events_sim_seq`: Unique index on `lws_events(simulation_id, sequence)`.
-    2. `idx_lws_events_sim_type`: Index on `lws_events(simulation_id, event_type)`.
-    3. `idx_lws_events_sim_actor`: Index on `lws_events(simulation_id, actor_character_id)`.
-    4. `idx_lws_events_turn`: Index on `lws_events(narrative_turn_id)`.
-    5. `idx_lws_events_idempotency`: Index on `lws_events(simulation_id, idempotency_key)`.
-    6. `idx_lws_narrative_turns_sim`: Index on `lws_narrative_turns(simulation_id)`.
+    1. `idx_lws_events_sim_seq`: Unique index on `lws_events(simulation_id, sequence_number)`.
+    2. `idx_lws_events_sim_time`: Index on `lws_events(simulation_id, fictional_time, sequence_number)`.
+    3. `idx_lws_events_actor`: Partial index on `lws_events(actor_character_id) WHERE actor_character_id IS NOT NULL`.
+    4. `idx_lws_events_authored_char`: Partial index on `lws_events(authored_character_id) WHERE authored_character_id IS NOT NULL`.
+    5. `idx_lws_events_idempotency`: Partial unique index on `lws_events(simulation_id, idempotency_key) WHERE idempotency_key IS NOT NULL`.
+    6. `idx_lws_events_turn`: Partial index on `lws_events(turn_id) WHERE turn_id IS NOT NULL`.
     7. `idx_lws_narrative_turns_sim_turn`: Unique index on `lws_narrative_turns(simulation_id, turn_number)`.
-  - Pure in-memory zero-SQL replay engine (`replaySimulation` and `verifySimulationParity`).
+  - Pure in-memory zero-SQL replay engine (`replaySimulation` and `verifySimulationParity` via `POST /api/living-world/simulations/:simLwsId/replay-verify`).
   - Elimination of Phase 3 mutation bypasses: `lws_simulations` and `lws_simulation_characters` mutations delegate strictly through `commitEvent`.
+

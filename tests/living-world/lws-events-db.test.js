@@ -1,5 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
+import Database from 'better-sqlite3';
 import { createTestDb, closeTestDb } from './fixtures/test-db.js';
+import { MIGRATIONS, runMigrations } from '../../src/living-world/migrations/index.js';
 
 describe('LWS Migration 004: Events Ledger and Narrative Turns Database Integrity', () => {
     let db;
@@ -15,6 +17,31 @@ describe('LWS Migration 004: Events Ledger and Narrative Turns Database Integrit
     test('applies migration 004 and elevates PRAGMA user_version to 4', () => {
         const version = Number(db.pragma('user_version', { simple: true }));
         expect(version).toBe(4);
+    });
+
+    test('migrates an existing database from version 3 to version 4', () => {
+        const legacyDb = new Database(':memory:');
+        legacyDb.pragma('foreign_keys = ON');
+
+        // Apply migrations 001, 002, 003
+        for (const migration of MIGRATIONS.filter(m => m.version <= 3)) {
+            migration.up(legacyDb);
+            legacyDb.pragma(`user_version = ${migration.version}`);
+        }
+        expect(Number(legacyDb.pragma('user_version', { simple: true }))).toBe(3);
+
+        // Run migrations to apply migration 004
+        const updatedVersion = runMigrations(legacyDb);
+        expect(updatedVersion).toBe(4);
+        expect(Number(legacyDb.pragma('user_version', { simple: true }))).toBe(4);
+
+        const tables = legacyDb.prepare(`
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name IN ('lws_narrative_turns', 'lws_events')
+            ORDER BY name ASC
+        `).all();
+        expect(tables.map(t => t.name)).toEqual(['lws_events', 'lws_narrative_turns']);
+        legacyDb.close();
     });
 
     test('creates lws_narrative_turns and lws_events tables', () => {

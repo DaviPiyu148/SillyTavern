@@ -42,27 +42,27 @@ Implemented the authoritative event ledger, 4-stage authority pipeline, narrativ
    - Exactly 16 SQLite database triggers:
      1. `trg_lws_events_immutable_all`: Rejects direct `UPDATE` on `lws_events`.
      2. `trg_lws_events_no_delete`: Rejects direct `DELETE` on `lws_events`.
-     3. `trg_lws_events_sequence_monotonic`: Enforces monotonic sequence increments.
-     4. `trg_lws_events_fictional_time_matches_sim`: Enforces that event `fictional_time` matches simulation clock.
-     5. `trg_lws_events_same_sim_actor`: Enforces that `actor_character_id` belongs to the same simulation.
-     6. `trg_lws_events_same_sim_target`: Enforces that `target_character_id` belongs to the same simulation.
-     7. `trg_lws_events_same_world_location`: Enforces that `location_id` belongs to the simulation's world.
-     8. `trg_lws_events_same_sim_turn`: Enforces that `narrative_turn_id` belongs to the same simulation.
-     9. `trg_lws_events_causal_integrity`: Enforces that `causal_event_id` belongs to the same simulation and has a strictly preceding sequence.
-     10. `trg_lws_events_start_actor_prohibited`: Prohibits `actor_character_id` on `SIMULATION_START`.
-     11. `trg_lws_events_start_location_prohibited`: Prohibits `location_id` on `SIMULATION_START`.
-     12. `trg_lws_events_join_authored_required`: Requires valid `payload.character_id` on `CHARACTER_JOIN`.
-     13. `trg_lws_events_stop_reason_required`: Requires non-empty string `payload.reason` on `SIMULATION_STOP`.
-     14. `trg_lws_narrative_turns_status_terminal`: Enforces terminal statuses (`committed` and `rejected` cannot be updated).
-     15. `trg_lws_narrative_turns_immutable_fields`: Prohibits modifying immutable fields (`simulation_id`, `turn_number`, `prompt_message_id`, `user_message_id`) on narrative turns.
+     3. `trg_lws_events_same_sim_actor`: Enforces that `actor_character_id` belongs to the same simulation as the event.
+     4. `trg_lws_events_same_sim_target`: Enforces that `target_character_id` belongs to the same simulation as the event.
+     5. `trg_lws_events_same_world_authored`: Enforces that `authored_character_id` belongs to the same world as the simulation.
+     6. `trg_lws_events_same_world_location`: Enforces that `location_id` belongs to the same world as the simulation.
+     7. `trg_lws_events_fictional_time_matches_sim`: Enforces that event `fictional_time` matches parent simulation `current_fictional_time`.
+     8. `trg_lws_events_causal_integrity`: Enforces that `causal_event_id` belongs to the same simulation and has a strictly preceding sequence (`sequence_number < NEW.sequence_number`).
+     9. `trg_lws_events_same_sim_turn`: Enforces that `turn_id` belongs to the same simulation as the event.
+     10. `trg_lws_events_char_actor_required`: Requires `actor_character_id` on character-specific state events.
+     11. `trg_lws_events_start_actor_prohibited`: Prohibits `actor_character_id` or `target_character_id` on `SIMULATION_START`.
+     12. `trg_lws_events_join_authored_required`: Requires `authored_character_id` on `CHARACTER_JOIN`.
+     13. `trg_lws_narrative_turns_sim_immutable`: Prohibits mutating `simulation_id` on narrative turns.
+     14. `trg_lws_narrative_turns_turn_num_immutable`: Prohibits mutating `turn_number` on narrative turns.
+     15. `trg_lws_narrative_turns_terminal_immutable`: Enforces terminal turn states (`committed`, `rejected`, `failed` turns cannot be mutated).
      16. `trg_lws_narrative_turns_no_delete`: Rejects direct `DELETE` on narrative turns.
    - Exactly 7 database indexes:
-     1. `idx_lws_events_sim_seq` (unique on `lws_events(simulation_id, sequence)`)
-     2. `idx_lws_events_sim_type` (on `lws_events(simulation_id, event_type)`)
-     3. `idx_lws_events_sim_actor` (on `lws_events(simulation_id, actor_character_id)`)
-     4. `idx_lws_events_turn` (on `lws_events(narrative_turn_id)`)
-     5. `idx_lws_events_idempotency` (on `lws_events(simulation_id, idempotency_key)`)
-     6. `idx_lws_narrative_turns_sim` (on `lws_narrative_turns(simulation_id)`)
+     1. `idx_lws_events_sim_seq` (unique on `lws_events(simulation_id, sequence_number)`)
+     2. `idx_lws_events_sim_time` (on `lws_events(simulation_id, fictional_time, sequence_number)`)
+     3. `idx_lws_events_actor` (on `lws_events(actor_character_id) WHERE actor_character_id IS NOT NULL`)
+     4. `idx_lws_events_authored_char` (on `lws_events(authored_character_id) WHERE authored_character_id IS NOT NULL`)
+     5. `idx_lws_events_idempotency` (unique on `lws_events(simulation_id, idempotency_key) WHERE idempotency_key IS NOT NULL`)
+     6. `idx_lws_events_turn` (on `lws_events(turn_id) WHERE turn_id IS NOT NULL`)
      7. `idx_lws_narrative_turns_sim_turn` (unique on `lws_narrative_turns(simulation_id, turn_number)`)
 2. Created events and authority domain modules under `src/living-world/events/`:
    - `taxonomy.js`: Closed 29-event taxonomy (23 active Phase 4 events, 6 deferred Phase 5 events, 13 stateful events), deepMerge, and JSON schema payload validators.
@@ -81,7 +81,7 @@ Implemented the authoritative event ledger, 4-stage authority pipeline, narrativ
    - `POST /api/living-world/simulations/:simLwsId/events`
    - `GET /api/living-world/simulations/:simLwsId/events`
    - `GET /api/living-world/simulations/:simLwsId/events/:eventLwsId`
-   - `GET /api/living-world/simulations/:simLwsId/replay-parity`
+   - `POST /api/living-world/simulations/:simLwsId/replay-verify`
 5. Authored ADR-012 in `docs/living-world/decisions/ADR-012-authoritative-event-ledger-and-state-transitions.md`.
 
 ### Reason
