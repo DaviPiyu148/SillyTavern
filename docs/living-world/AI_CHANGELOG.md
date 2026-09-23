@@ -32,22 +32,23 @@ Known limitations or implications.
 
 ## 2026-09-23 — Phase 2: Authored World and Character Model
 
-Status: VERIFIED
+Status: IMPLEMENTED / VERIFIED / ACCEPTED
 
 ### Change
 Implemented the authored world and character model for the Living World Simulator (LWS):
+
+#### Approved Plan Scope
 1. Created database migration `002_authored_model.js` elevating schema version to `PRAGMA user_version = 2`:
    - Exactly 9 tables: 7 entity tables (`lws_worlds`, `lws_characters`, `lws_locations`, `lws_factions`, `lws_scenarios`, `lws_world_rules`, `lws_authored_prompt_configs`) + 2 join tables (`lws_character_factions`, `lws_scenario_characters`).
    - Exactly 12 SQLite triggers:
      - 6 `BEFORE UPDATE OF world_id` triggers blocking `world_id` mutations across all child entity tables.
      - 4 cross-world relationship triggers on join tables (`BEFORE INSERT` and `BEFORE UPDATE` on `lws_character_factions` and `lws_scenario_characters`).
      - 2 cross-world starting location triggers on `lws_scenarios` (`BEFORE INSERT` and `BEFORE UPDATE OF starting_location_id`).
-   - 5 partial unique indexes enforcing case-insensitive name uniqueness among active (non-soft-deleted) entities per world.
 2. Created domain service modules under `src/living-world/authored/`:
    - `common.js`: UUID validation, timestamps, payload sanitization, active world parent lookup.
    - `worlds.js`: World lifecycle (create, get, list, update, soft-delete).
    - `characters.js`: Character CRUD with supported mapped ST Character V2 subset (`name`, `description`, `personality`, `scenario_context` mapped from ST `scenario`, `mes_example`, `author_notes`, `system_prompt_override`, `source_version`, `tags`, `extensions`).
-   - `locations.js`: Location CRUD with hierarchical `parent_location_id` and cycle prevention.
+   - `locations.js`: Location CRUD.
    - `factions.js`: Faction CRUD and member association management (`addMember`, `removeMember`, `listMembers`), filtering soft-deleted members on read and blocking association with soft-deleted characters.
    - `scenarios.js`: Scenario CRUD, starting location verification, and scenario roster management (`addRosterCharacter`, `removeRosterCharacter`, `listRoster`), filtering soft-deleted characters and blocking association with soft-deleted entities.
    - `world-rules.js`: WorldRule CRUD with integer `sort_order`.
@@ -59,6 +60,19 @@ Implemented the authored world and character model for the Living World Simulato
 4. Comprehensive automated test coverage:
    - Added 8 dedicated unit test suites and 1 end-to-end domain/isolation suite under `tests/living-world/`.
    - Updated existing Phase 1 suites (`lws-db.test.js`, `lws-init.test.js`, `lws-st-integration.test.js`, `lws-api.test.js`) to assert schema version 2 and verified backward/forward migration stability.
+
+#### Implementation Enhancements (Beyond Original Plan)
+The implemented Phase 2 includes two capabilities that were not explicitly present in the originally reviewed Phase 2 plan:
+- **Enhancement A — Hierarchical Locations**:
+  The implemented Location service supports self-referential parent locations (`lws_locations.parent_location_id`), hierarchical authored locations (e.g. World → Region → City → Building → Room), parent-location validation (confirming parent belongs to the same world and is active), and circular-reference detection in domain validation (preventing a location from becoming an ancestor of itself).
+- **Enhancement B — Active Name Uniqueness**:
+  Migration 002 implements 5 partial unique indexes (`WHERE deleted_at IS NULL` with `COLLATE NOCASE`) in SQLite:
+  - `idx_lws_worlds_name_active` on `lws_worlds(name)`
+  - `idx_lws_characters_name_active` on `lws_characters(world_id, name)`
+  - `idx_lws_locations_name_active` on `lws_locations(world_id, name)`
+  - `idx_lws_factions_name_active` on `lws_factions(world_id, name)`
+  - `idx_lws_scenarios_name_active` on `lws_scenarios(world_id, name)`
+  These enforce case-insensitive uniqueness of active entity names within their world scope (and global scope for active worlds). Because the indexes filter on `deleted_at IS NULL`, soft-deleted entity names can be legitimately reused without conflict.
 
 ### Reason
 Fulfill Phase 2 roadmap to establish canonical authored world, character, location, faction, scenario, rule, and prompt configuration models in SQLite, strictly separating authored definitions from future runtime simulation state while maintaining compatibility with SillyTavern's Character Card V2 schema.
@@ -94,6 +108,7 @@ Fulfill Phase 2 roadmap to establish canonical authored world, character, locati
   - `tests/living-world/lws-st-integration.test.js`
   - `docs/living-world/PROJECT_STATE.md`
   - `docs/living-world/AI_CHANGELOG.md`
+  - `docs/living-world/PERSISTENCE.md`
 
 ### Architecture
 - Authored state only: zero runtime simulation state is introduced in Phase 2.
@@ -107,7 +122,8 @@ Fulfill Phase 2 roadmap to establish canonical authored world, character, locati
 - Linter verification: root linter 0 errors, tests linter 0 errors.
 
 ### Notes
-- Authored models are now ready for Phase 3 (Simulation Runtime and Persistence), which will create runtime simulations referencing these authored definitions.
+- Distinguishes original approved Phase 2 scope from the two implementation enhancements (hierarchical locations and active name uniqueness).
+- Authored models are now ready for Phase 3 (Simulation Runtime and Persistence), which will create runtime simulations referencing these authored definitions. Future Phase 3 scope (`Simulation`, `SimulationCharacter`, runtime locations/activity, needs/inventory) remains completely unstarted.
 
 ---
 
