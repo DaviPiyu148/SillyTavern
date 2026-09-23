@@ -30,6 +30,87 @@ Known limitations or implications.
 
 ---
 
+## 2026-09-23 — Phase 2: Authored World and Character Model
+
+Status: VERIFIED
+
+### Change
+Implemented the authored world and character model for the Living World Simulator (LWS):
+1. Created database migration `002_authored_model.js` elevating schema version to `PRAGMA user_version = 2`:
+   - Exactly 9 tables: 7 entity tables (`lws_worlds`, `lws_characters`, `lws_locations`, `lws_factions`, `lws_scenarios`, `lws_world_rules`, `lws_authored_prompt_configs`) + 2 join tables (`lws_character_factions`, `lws_scenario_characters`).
+   - Exactly 12 SQLite triggers:
+     - 6 `BEFORE UPDATE OF world_id` triggers blocking `world_id` mutations across all child entity tables.
+     - 4 cross-world relationship triggers on join tables (`BEFORE INSERT` and `BEFORE UPDATE` on `lws_character_factions` and `lws_scenario_characters`).
+     - 2 cross-world starting location triggers on `lws_scenarios` (`BEFORE INSERT` and `BEFORE UPDATE OF starting_location_id`).
+   - 5 partial unique indexes enforcing case-insensitive name uniqueness among active (non-soft-deleted) entities per world.
+2. Created domain service modules under `src/living-world/authored/`:
+   - `common.js`: UUID validation, timestamps, payload sanitization, active world parent lookup.
+   - `worlds.js`: World lifecycle (create, get, list, update, soft-delete).
+   - `characters.js`: Character CRUD with supported mapped ST Character V2 subset (`name`, `description`, `personality`, `scenario_context` mapped from ST `scenario`, `mes_example`, `author_notes`, `system_prompt_override`, `source_version`, `tags`, `extensions`).
+   - `locations.js`: Location CRUD with hierarchical `parent_location_id` and cycle prevention.
+   - `factions.js`: Faction CRUD and member association management (`addMember`, `removeMember`, `listMembers`), filtering soft-deleted members on read and blocking association with soft-deleted characters.
+   - `scenarios.js`: Scenario CRUD, starting location verification, and scenario roster management (`addRosterCharacter`, `removeRosterCharacter`, `listRoster`), filtering soft-deleted characters and blocking association with soft-deleted entities.
+   - `world-rules.js`: WorldRule CRUD with integer `sort_order`.
+   - `prompt-configs.js`: AuthoredPromptConfig 1:1 per-world management, raising HTTP 409 conflict on duplicate creation attempt.
+3. Expanded REST API transport in `src/endpoints/living-world.js`:
+   - 40+ REST routes covering all authored entities and relationships under `/api/living-world/worlds/:worldLwsId/*`.
+   - Parent world gating: any request under `/api/living-world/worlds/:worldLwsId/*` when the parent world is soft-deleted returns `404 {"error": "World not found"}` while child database rows remain intact.
+   - Input validation: invalid UUIDs return 400; missing required fields return 400; unique name collisions return 409; cross-world / soft-deleted entity references return 400 or 404.
+4. Comprehensive automated test coverage:
+   - Added 8 dedicated unit test suites and 1 end-to-end domain/isolation suite under `tests/living-world/`.
+   - Updated existing Phase 1 suites (`lws-db.test.js`, `lws-init.test.js`, `lws-st-integration.test.js`, `lws-api.test.js`) to assert schema version 2 and verified backward/forward migration stability.
+
+### Reason
+Fulfill Phase 2 roadmap to establish canonical authored world, character, location, faction, scenario, rule, and prompt configuration models in SQLite, strictly separating authored definitions from future runtime simulation state while maintaining compatibility with SillyTavern's Character Card V2 schema.
+
+### Files/modules
+- Created:
+  - `src/living-world/migrations/002_authored_model.js`
+  - `src/living-world/authored/common.js`
+  - `src/living-world/authored/worlds.js`
+  - `src/living-world/authored/characters.js`
+  - `src/living-world/authored/locations.js`
+  - `src/living-world/authored/factions.js`
+  - `src/living-world/authored/scenarios.js`
+  - `src/living-world/authored/world-rules.js`
+  - `src/living-world/authored/prompt-configs.js`
+  - `tests/living-world/lws-authored-worlds.test.js`
+  - `tests/living-world/lws-authored-characters.test.js`
+  - `tests/living-world/lws-authored-locations.test.js`
+  - `tests/living-world/lws-authored-factions.test.js`
+  - `tests/living-world/lws-authored-scenarios.test.js`
+  - `tests/living-world/lws-authored-world-rules.test.js`
+  - `tests/living-world/lws-authored-prompt-configs.test.js`
+  - `tests/living-world/lws-authored-domain.test.js`
+  - `tests/living-world/lws-authored-api.test.js`
+- Modified:
+  - `src/living-world/errors.js`
+  - `src/living-world/migrations/index.js`
+  - `src/living-world/index.js`
+  - `src/endpoints/living-world.js`
+  - `tests/living-world/lws-db.test.js`
+  - `tests/living-world/lws-init.test.js`
+  - `tests/living-world/lws-api.test.js`
+  - `tests/living-world/lws-st-integration.test.js`
+  - `docs/living-world/PROJECT_STATE.md`
+  - `docs/living-world/AI_CHANGELOG.md`
+
+### Architecture
+- Authored state only: zero runtime simulation state is introduced in Phase 2.
+- Data integrity enforced at both database and domain service layers via SQLite triggers and transactions.
+- Soft-delete semantics preserve historical authored entity records while hiding them from active API queries.
+- Clean isolation between SillyTavern character card storage and LWS SQLite persistent storage.
+
+### Tests
+- 32 test suites passed, 499 tests passed across the full test suite (0 failures, 0 regressions).
+- LWS-specific unit and integration tests: 88 passing tests across 13 LWS test files.
+- Linter verification: root linter 0 errors, tests linter 0 errors.
+
+### Notes
+- Authored models are now ready for Phase 3 (Simulation Runtime and Persistence), which will create runtime simulations referencing these authored definitions.
+
+---
+
 ## 2026-09-23 — Phase 1: LWS Host Foundation
 
 Status: VERIFIED

@@ -1,4 +1,5 @@
 import { up as migration001Up } from './001_initial.js';
+import { up as migration002Up } from './002_authored_model.js';
 
 /**
  * Ordered list of all LWS migrations.
@@ -12,6 +13,11 @@ export const MIGRATIONS = Object.freeze([
         version: 1,
         name: '001_initial',
         up: migration001Up,
+    },
+    {
+        version: 2,
+        name: '002_authored_model',
+        up: migration002Up,
     },
 ]);
 

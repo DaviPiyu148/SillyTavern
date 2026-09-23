@@ -27,3 +27,17 @@ export class LwsValidationError extends LwsError {
         this.fields = fields;
     }
 }
+
+export class LwsNotFoundError extends LwsError {
+    constructor(message = 'LWS entity not found') {
+        super(message);
+        this.name = 'LwsNotFoundError';
+    }
+}
+
+export class LwsConflictError extends LwsError {
+    constructor(message = 'LWS entity conflict') {
+        super(message);
+        this.name = 'LwsConflictError';
+    }
+}

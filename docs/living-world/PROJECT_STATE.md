@@ -12,12 +12,13 @@
 
 The inspected host contains the standard SillyTavern structure: `src/`, `src/endpoints/`, `public/`, `public/scripts/`, `plugins/`, `data/`, and `tests/`.
 
-As of Phase 1 completion, the native LWS subsystem namespace is established and integrated:
-- `src/living-world/` (errors, db, migrations, index)
-- `src/endpoints/living-world.js`
+As of Phase 2 completion, the native LWS subsystem namespace and authored domain models are established and integrated:
+- `src/living-world/` (errors, db, migrations, authored domain services, index)
+- `src/living-world/authored/` (worlds, characters, locations, factions, scenarios, world-rules, prompt-configs, common)
+- `src/endpoints/living-world.js` (status, ping, and complete authored REST endpoints)
 - `public/scripts/living-world/`
 - `data/living-world/`
-- `tests/living-world/`
+- `tests/living-world/` (comprehensive suites covering DB, migrations, authored services, cross-world integrity triggers, immutability, and REST endpoints)
 
 ## Designed and accepted
 
@@ -48,7 +49,7 @@ Travel consumes fictional time; older instantaneous-travel interpretation is sup
 | Phase | Title | Status | Evidence |
 |---|---|---|---|
 | **Phase 1** | **LWS Host Foundation** | **IMPLEMENTED & VERIFIED** | Unit suite (`tests/living-world/`) passes (21/21 tests); ST full suite passes (432/432 tests); real ST server process lifecycle verified with live HTTP probe; clean shutdown verified; SQLite WAL DB created at `data/living-world/lws.db`. |
-| Phase 2 | Authored World and Character Model | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
+| **Phase 2** | **Authored World and Character Model** | **IMPLEMENTED & VERIFIED** | Migration 002 applied (`PRAGMA user_version = 2`); exactly 9 authored tables, 12 DB triggers (cross-world relationship integrity & `world_id` immutability), 5 partial indexes; 7 authored domain services; 40+ REST endpoints under `/api/living-world/worlds`; ST V2 character mapped subset; full unit and integration test suites passing (32/32 suites, 499/499 tests); linters clean (0 errors). |
 | Phase 3 | Simulation Runtime and Persistence | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
 | Phase 4 | Events, Authority, and State Transitions | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
 | Phase 5 | Fictional Time, Schedules, Routines, and Travel | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |

@@ -72,3 +72,12 @@ export {
     getDbVersion,
     getLastError,
 };
+
+export * from './errors.js';
+export * from './authored/worlds.js';
+export * from './authored/characters.js';
+export * from './authored/locations.js';
+export * from './authored/factions.js';
+export * from './authored/scenarios.js';
+export * from './authored/world-rules.js';
+export * from './authored/prompt-configs.js';

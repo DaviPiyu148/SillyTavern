@@ -78,3 +78,9 @@ Replay uses the immutable event sequence, avoids LLM calls, and should reproduce
 ## Migrations
 
 Schema changes require explicit, versioned migrations and verification.
+
+### Applied migrations
+
+- `001_initial`: Baseline LWS metadata schema (`lws_meta` table, `user_version = 1`).
+- `002_authored_model`: Canonical authored model (`user_version = 2`): 9 tables (`lws_worlds`, `lws_characters`, `lws_locations`, `lws_factions`, `lws_scenarios`, `lws_world_rules`, `lws_authored_prompt_configs`, `lws_character_factions`, `lws_scenario_characters`), 12 integrity and immutability triggers, and 5 partial unique indexes for active entities.
+

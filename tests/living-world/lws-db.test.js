@@ -16,9 +16,9 @@ describe('LWS Database Foundation and Migrations', () => {
         }
     });
 
-    test('applies migration 001 and sets PRAGMA user_version to 1', () => {
+    test('applies migrations 001 and 002 and sets PRAGMA user_version to 2', () => {
         const userVersion = memoryDb.pragma('user_version', { simple: true });
-        expect(userVersion).toBe(1);
+        expect(userVersion).toBe(2);
     });
 
     test('creates lws_meta table and stores initialized_at metadata', () => {
@@ -34,29 +34,75 @@ describe('LWS Database Foundation and Migrations', () => {
         expect(row.value.length).toBeGreaterThan(0);
     });
 
+    test('creates all 9 Phase 2 authored tables', () => {
+        const tables = memoryDb.prepare('SELECT name FROM sqlite_master WHERE type=\'table\'').all();
+        const tableNames = tables.map(t => t.name);
+
+        const expectedTables = [
+            'lws_meta',
+            'lws_worlds',
+            'lws_characters',
+            'lws_locations',
+            'lws_factions',
+            'lws_character_factions',
+            'lws_world_rules',
+            'lws_scenarios',
+            'lws_scenario_characters',
+            'lws_authored_prompt_configs',
+        ];
+
+        for (const t of expectedTables) {
+            expect(tableNames).toContain(t);
+        }
+    });
+
+    test('creates all 12 Phase 2 database triggers', () => {
+        const triggers = memoryDb.prepare('SELECT name FROM sqlite_master WHERE type=\'trigger\'').all();
+        const triggerNames = triggers.map(t => t.name);
+
+        const expectedTriggers = [
+            'trg_lws_character_factions_same_world_insert',
+            'trg_lws_character_factions_same_world_update',
+            'trg_lws_scenarios_location_same_world_insert',
+            'trg_lws_scenarios_location_same_world_update',
+            'trg_lws_scenario_characters_same_world_insert',
+            'trg_lws_scenario_characters_same_world_update',
+            'trg_lws_characters_world_id_immutable',
+            'trg_lws_locations_world_id_immutable',
+            'trg_lws_factions_world_id_immutable',
+            'trg_lws_world_rules_world_id_immutable',
+            'trg_lws_scenarios_world_id_immutable',
+            'trg_lws_prompt_configs_world_id_immutable',
+        ];
+
+        expect(triggerNames).toHaveLength(expectedTriggers.length);
+        for (const trg of expectedTriggers) {
+            expect(triggerNames).toContain(trg);
+        }
+    });
+
     test('migrations are idempotent and do not fail or alter version when re-executed', () => {
         const versionBefore = memoryDb.pragma('user_version', { simple: true });
-        expect(versionBefore).toBe(1);
+        expect(versionBefore).toBe(2);
 
         const versionAfter = runMigrations(memoryDb);
-        expect(versionAfter).toBe(1);
+        expect(versionAfter).toBe(2);
 
         const count = memoryDb.prepare('SELECT COUNT(*) as cnt FROM lws_meta').get();
         expect(count.cnt).toBe(1);
     });
 
-    test('enforces PRAGMA foreign_keys = ON', () => {
+    test('enforces PRAGMA foreign_keys = ON on authored tables', () => {
         const fk = memoryDb.pragma('foreign_keys', { simple: true });
         expect(fk).toBe(1);
 
-        // Verify foreign key enforcement behavior
-        memoryDb.exec(`
-            CREATE TABLE parent (id INTEGER PRIMARY KEY);
-            CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id));
-        `);
-
+        // Attempting to insert a character referencing a non-existent world must fail
         expect(() => {
-            memoryDb.prepare('INSERT INTO child (id, parent_id) VALUES (1, 999)').run();
+            memoryDb.prepare(`
+                INSERT INTO lws_characters (
+                    lws_id, world_id, name, created_at, updated_at
+                ) VALUES ('00000000-0000-0000-0000-000000000001', 99999, 'Orphan', '2026-01-01', '2026-01-01')
+            `).run();
         }).toThrow(/FOREIGN KEY constraint failed/);
     });
 
@@ -79,7 +125,7 @@ describe('LWS Database Foundation and Migrations', () => {
             // Reopen the same file
             const reopenedDb = new Database(dbPath);
             const userVersion = reopenedDb.pragma('user_version', { simple: true });
-            expect(userVersion).toBe(1);
+            expect(userVersion).toBe(2);
 
             const row = reopenedDb.prepare('SELECT value FROM lws_meta WHERE key = ?').get('test_key');
             expect(row?.value).toBe('test_val');
@@ -94,6 +140,8 @@ describe('LWS Database Foundation and Migrations', () => {
         const tableNames = tables.map(t => t.name);
 
         expect(tableNames).toContain('lws_meta');
+        expect(tableNames).toContain('lws_worlds');
+        expect(tableNames).toContain('lws_characters');
         expect(tableNames).not.toContain('chats');
         expect(tableNames).not.toContain('characters');
         expect(tableNames).not.toContain('settings');
