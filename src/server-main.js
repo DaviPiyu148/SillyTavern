@@ -68,6 +68,7 @@ import { UPLOADS_DIRECTORY } from './constants.js';
 // Routers
 import { router as usersPublicRouter } from './endpoints/users-public.js';
 import { init as statsInit, onExit as statsOnExit } from './endpoints/stats.js';
+import { init as lwsInit, onExit as lwsOnExit } from './living-world/index.js';
 import { checkForNewContent } from './endpoints/content-manager.js';
 import { init as settingsInit } from './endpoints/settings.js';
 import { redirectDeprecatedEndpoints, ServerStartup, setupPrivateEndpoints } from './server-startup.js';
@@ -308,6 +309,7 @@ async function preSetupTasks() {
 
     await settingsInit();
     await statsInit();
+    await lwsInit();
 
     const pluginsDirectory = path.join(serverDirectory, 'plugins');
     const cleanupPlugins = await loadPlugins(app, pluginsDirectory);
@@ -318,6 +320,7 @@ async function preSetupTasks() {
         if (isExiting) return;
         isExiting = true;
         await statsOnExit();
+        await lwsOnExit();
         if (typeof cleanupPlugins === 'function') {
             await cleanupPlugins();
         }

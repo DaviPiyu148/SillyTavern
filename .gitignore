@@ -49,7 +49,14 @@ access.log
 public/css/user.css
 public/error/
 /plugins/
-/data
+/data/*
+!/data/.gitkeep
+!/data/living-world/
+/data/living-world/*
+!/data/living-world/.gitkeep
+*.db
+*.db-wal
+*.db-shm
 /default/scaffold
 public/scripts/extensions/third-party
 /certs
