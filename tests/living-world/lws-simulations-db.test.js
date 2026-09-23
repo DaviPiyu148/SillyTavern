@@ -60,6 +60,7 @@ describe('LWS Migration 003: Simulation Runtime Database and Integrity', () => {
         `).all();
 
         const indexNames = indexes.map(i => i.name);
+        expect(indexNames).toHaveLength(5);
         expect(indexNames).toContain('idx_lws_simulations_world');
         expect(indexNames).toContain('idx_lws_simulations_name_active');
         expect(indexNames).toContain('idx_lws_sim_chars_sim');

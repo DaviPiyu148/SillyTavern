@@ -89,22 +89,25 @@ Schema changes require explicit, versioned migrations and verification.
 - `003_simulation_runtime`: Simulation runtime and persistence (`user_version = 3`):
   - 2 tables: `lws_simulations` (runtime instance, fictional timestamp, status, settings, extensions) and `lws_simulation_characters` (runtime character instance, current location, activity, physical condition, runtime state, and frozen `authored_snapshot`).
   - 10 database triggers enforcing:
-    - `world_id` immutability on `lws_simulations`
-    - `scenario_id` immutability on `lws_simulations`
-    - Scenario same-world foreign key verification on simulation insertion
-    - Simulation status lifecycle transitions (`active` ⇄ `paused`, `active`/`paused` → `archived`, `archived` terminal)
-    - `simulation_id` immutability on `lws_simulation_characters`
-    - `character_id` immutability on `lws_simulation_characters`
-    - `authored_snapshot` immutability on `lws_simulation_characters`
-    - Character same-world foreign key verification on runtime character insertion
-    - Location same-world foreign key verification on runtime character insertion
-    - Soft-deleted location assignment guards (`trg_lws_sim_chars_location_insert` and `trg_lws_sim_chars_location_update`), blocking new assignment of soft-deleted locations while preserving existing references.
+    1. `trg_lws_simulations_world_id_immutable`: Blocks mutating `world_id` on simulations.
+    2. `trg_lws_simulations_scenario_id_immutable`: Blocks mutating `scenario_id` on simulations.
+    3. `trg_lws_simulations_scenario_same_world_insert`: Verifies scenario belongs to the same world on simulation insertion.
+    4. `trg_lws_simulations_status_transition`: Enforces simulation status lifecycle matrix (`active` ⇄ `paused`, `active`/`paused` → `archived`, `archived` terminal).
+    5. `trg_lws_sim_chars_simulation_id_immutable`: Blocks mutating `simulation_id` on runtime characters.
+    6. `trg_lws_sim_chars_character_id_immutable`: Blocks mutating `character_id` on runtime characters.
+    7. `trg_lws_sim_chars_authored_snapshot_immutable`: Blocks mutating `authored_snapshot` on runtime characters.
+    8. `trg_lws_sim_chars_same_world_insert`: Verifies character belongs to simulation's world on insertion.
+    9. `trg_lws_sim_chars_location_insert`: Verifies location belongs to simulation's world and prevents newly assigning a soft-deleted location on insertion.
+    10. `trg_lws_sim_chars_location_update`: Verifies location belongs to simulation's world and prevents newly assigning a soft-deleted location on update, while preserving existing references.
   - 5 performance and integrity indexes:
-    - `idx_lws_simulations_world_status` on `lws_simulations(world_id, status)`
-    - `idx_lws_simulations_name_active` (partial unique index on `lws_simulations(world_id, name) WHERE deleted_at IS NULL COLLATE NOCASE`)
-    - `idx_lws_sim_chars_sim_char_active` (partial unique index on `lws_simulation_characters(simulation_id, character_id) WHERE deleted_at IS NULL`)
-    - `idx_lws_sim_chars_sim` on `lws_simulation_characters(simulation_id)`
-    - `idx_lws_sim_chars_location` on `lws_simulation_characters(current_location_id)`
+    - `idx_lws_simulations_world`: Fast filtering of active simulations by parent world (`lws_simulations(world_id) WHERE deleted_at IS NULL`).
+    - `idx_lws_simulations_name_active`: Partial unique index enforcing case-insensitive name uniqueness among active simulations within a world (`lws_simulations(world_id, name COLLATE NOCASE) WHERE deleted_at IS NULL`).
+    - `idx_lws_sim_chars_sim`: Fast lookup of active simulation characters by simulation (`lws_simulation_characters(simulation_id) WHERE deleted_at IS NULL`).
+    - `idx_lws_sim_chars_unique_active`: Partial unique index preventing duplicate active character assignment in a simulation (`lws_simulation_characters(simulation_id, character_id) WHERE deleted_at IS NULL`).
+    - `idx_lws_sim_chars_location`: Fast lookup of active characters by current location (`lws_simulation_characters(current_location_id) WHERE deleted_at IS NULL`).
+  - Simulation soft-deletion semantics:
+    - Sets `deleted_at = isoNow()` and `updated_at = isoNow()` on `lws_simulations`.
+    - Child `lws_simulation_characters` rows remain physically intact and unchanged in SQLite for auditability and future replay; child routes under `/simulations/:simLwsId/characters/*` return HTTP 404 via parent simulation status gating.
 
 
 

@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from '@jest/globals';
 import {
     openDb,
     closeDb,
+    getDb,
     createWorld,
     createCharacter,
     createLocation,
@@ -14,6 +15,8 @@ import {
     listSimulations,
     updateSimulation,
     deleteSimulation,
+    addSimulationCharacter,
+    getSimulationCharacterByLwsId,
     listSimulationCharacters,
     LwsValidationError,
     LwsNotFoundError,
@@ -243,6 +246,25 @@ describe('LWS Simulation Service: Lifecycle, Calendar Validation, and Instantiat
                 updateSimulation(sim.lws_id, { status: 'running' });
             }).toThrow(LwsValidationError);
         });
+
+        test('rejects modifying immutable or non-patchable fields (world_id, scenario_id, current_fictional_time)', () => {
+            const sim = createSimulation(world.lws_id, {
+                name: 'Immutable Fields Sim',
+                initial_fictional_time: '2026-06-01T09:00:00Z',
+            });
+
+            expect(() => {
+                updateSimulation(sim.lws_id, { world_id: 'some-other-uuid' });
+            }).toThrow(/world_id is immutable/);
+
+            expect(() => {
+                updateSimulation(sim.lws_id, { scenario_id: 'some-scenario-uuid' });
+            }).toThrow(/scenario_id is immutable/);
+
+            expect(() => {
+                updateSimulation(sim.lws_id, { current_fictional_time: '2026-07-01T12:00:00Z' });
+            }).toThrow(/current_fictional_time cannot be modified via PATCH/);
+        });
     });
 
     describe('Simulation Soft-Deletion', () => {
@@ -315,6 +337,27 @@ describe('LWS Simulation Service: Lifecycle, Calendar Validation, and Instantiat
             const activeSims = listSimulations(world.lws_id);
             expect(activeSims).toHaveLength(1);
             expect(activeSims[0].lws_id).toBe(sim1.lws_id);
+        });
+
+        test('preserves physical rows of simulation characters when simulation is soft-deleted', () => {
+            const char = createCharacter(world.lws_id, { name: 'Survivor' });
+            const sim = createSimulation(world.lws_id, {
+                name: 'Preservation Sim',
+                initial_fictional_time: '2026-06-01T09:00:00Z',
+            });
+            const simChar = addSimulationCharacter(sim.lws_id, { character_id: char.lws_id });
+
+            deleteSimulation(sim.lws_id);
+
+            // Child routes throw 404 because simulation is soft-deleted
+            expect(() => listSimulationCharacters(sim.lws_id)).toThrow(LwsNotFoundError);
+            expect(() => getSimulationCharacterByLwsId(sim.lws_id, simChar.lws_id)).toThrow(LwsNotFoundError);
+
+            // Directly query SQLite to prove underlying rows remain physically intact
+            const db = getDb();
+            const rawSimChar = db.prepare('SELECT * FROM lws_simulation_characters WHERE lws_id = ?').get(simChar.lws_id);
+            expect(rawSimChar).toBeDefined();
+            expect(rawSimChar.deleted_at).toBeNull(); // remains intact for audit/replay
         });
     });
 });

@@ -40,25 +40,25 @@ Implemented the simulation runtime and persistence layer for the Living World Si
 1. Created database migration `003_simulation_runtime.js` elevating schema version to `PRAGMA user_version = 3`:
    - Exactly 2 runtime tables: `lws_simulations` and `lws_simulation_characters`.
    - Exactly 10 SQLite database triggers:
-     - `trg_lws_simulations_world_id_immutable` (BEFORE UPDATE OF world_id ON lws_simulations)
-     - `trg_lws_simulations_scenario_id_immutable` (BEFORE UPDATE OF scenario_id ON lws_simulations)
-     - `trg_lws_simulations_scenario_same_world_insert` (BEFORE INSERT ON lws_simulations)
-     - `trg_lws_simulations_status_transition` (BEFORE UPDATE OF status ON lws_simulations)
-     - `trg_lws_sim_chars_simulation_id_immutable` (BEFORE UPDATE OF simulation_id ON lws_simulation_characters)
-     - `trg_lws_sim_chars_character_id_immutable` (BEFORE UPDATE OF character_id ON lws_simulation_characters)
-     - `trg_lws_sim_chars_snapshot_immutable` (BEFORE UPDATE OF authored_snapshot ON lws_simulation_characters)
-     - `trg_lws_sim_chars_character_same_world_insert` (BEFORE INSERT ON lws_simulation_characters)
-     - `trg_lws_sim_chars_location_same_world_insert` (BEFORE INSERT ON lws_simulation_characters)
-     - `trg_lws_sim_chars_location_insert` & `trg_lws_sim_chars_location_update` (blocks newly assigning soft-deleted locations while preserving existing references).
+     1. `trg_lws_simulations_world_id_immutable` (BEFORE UPDATE OF world_id ON lws_simulations)
+     2. `trg_lws_simulations_scenario_id_immutable` (BEFORE UPDATE OF scenario_id ON lws_simulations)
+     3. `trg_lws_simulations_scenario_same_world_insert` (BEFORE INSERT ON lws_simulations)
+     4. `trg_lws_simulations_status_transition` (BEFORE UPDATE OF status ON lws_simulations)
+     5. `trg_lws_sim_chars_simulation_id_immutable` (BEFORE UPDATE OF simulation_id ON lws_simulation_characters)
+     6. `trg_lws_sim_chars_character_id_immutable` (BEFORE UPDATE OF character_id ON lws_simulation_characters)
+     7. `trg_lws_sim_chars_authored_snapshot_immutable` (BEFORE UPDATE OF authored_snapshot ON lws_simulation_characters)
+     8. `trg_lws_sim_chars_same_world_insert` (BEFORE INSERT ON lws_simulation_characters)
+     9. `trg_lws_sim_chars_location_insert` (BEFORE INSERT ON lws_simulation_characters: verifies same-world and blocks soft-deleted location)
+     10. `trg_lws_sim_chars_location_update` (BEFORE UPDATE OF current_location_id ON lws_simulation_characters: verifies same-world and blocks newly assigning soft-deleted location while preserving existing references)
    - Exactly 5 database indexes:
-     - `idx_lws_simulations_world_status` on `lws_simulations(world_id, status)`
-     - `idx_lws_simulations_name_active` (partial unique index on `lws_simulations(world_id, name) WHERE deleted_at IS NULL COLLATE NOCASE`)
-     - `idx_lws_sim_chars_sim_char_active` (partial unique index on `lws_simulation_characters(simulation_id, character_id) WHERE deleted_at IS NULL`)
-     - `idx_lws_sim_chars_sim` on `lws_simulation_characters(simulation_id)`
-     - `idx_lws_sim_chars_location` on `lws_simulation_characters(current_location_id)`
+     - `idx_lws_simulations_world` on `lws_simulations(world_id) WHERE deleted_at IS NULL`
+     - `idx_lws_simulations_name_active` (partial unique index on `lws_simulations(world_id, name COLLATE NOCASE) WHERE deleted_at IS NULL`)
+     - `idx_lws_sim_chars_sim` on `lws_simulation_characters(simulation_id) WHERE deleted_at IS NULL`
+     - `idx_lws_sim_chars_unique_active` (partial unique index on `lws_simulation_characters(simulation_id, character_id) WHERE deleted_at IS NULL`)
+     - `idx_lws_sim_chars_location` on `lws_simulation_characters(current_location_id) WHERE deleted_at IS NULL`
 2. Created simulation domain modules under `src/living-world/simulations/`:
    - `common.js`: Semantic calendar date validation (`validateFictionalTimestamp`) validating Gregorian leap years, days in month, and 24h clock bounds; status transition matrix validation; and active world/simulation lookups with soft-delete gating.
-   - `simulations.js`: Full simulation lifecycle CRUD, scenario instantiation with atomic roster creation and frozen snapshots, active name uniqueness, status transition enforcement, and soft-deletion (allowed from `active`, `paused`, and `archived`).
+   - `simulations.js`: Full simulation lifecycle CRUD, scenario instantiation with atomic roster creation and frozen snapshots, active name uniqueness, status transition enforcement, and soft-deletion (allowed from `active`, `paused`, and `archived`). Simulation soft-deletion sets `deleted_at = isoNow()`; child `lws_simulation_characters` rows remain physically intact in SQLite for audit and replay, while child routes return 404 via parent simulation status gating. `updateSimulation` permits updating `name`, `status`, `settings`, and `extensions`, while rejecting attempts to modify `world_id`, `scenario_id`, or `current_fictional_time` with HTTP 400.
    - `simulation-characters.js`: SimulationCharacter CRUD, runtime state mutations (`current_location_id`, `activity`, `physical_condition`, `runtime_state`), duplicate active character conflict rejection (409), paused/archived mutation protection, soft-deleted location assignment guards, and soft-deletion.
 3. Established Hybrid Runtime Identity & Snapshots (ADR-011):
    - Runtime instances maintain independent identities and lineages to authored characters without mutating authored tables.

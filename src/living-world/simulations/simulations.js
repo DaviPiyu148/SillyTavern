@@ -244,8 +244,16 @@ export function updateSimulation(simLwsId, patch = {}) {
     const db = getDb();
     const current = ensureActiveSimulation(db, simLwsId);
 
+    if (patch.world_id !== undefined) {
+        throw new LwsValidationError('world_id is immutable', ['world_id']);
+    }
+
     if (patch.scenario_id !== undefined) {
         throw new LwsValidationError('scenario_id is immutable', ['scenario_id']);
+    }
+
+    if (patch.current_fictional_time !== undefined) {
+        throw new LwsValidationError('current_fictional_time cannot be modified via PATCH', ['current_fictional_time']);
     }
 
     const name = patch.name !== undefined ? validateName(patch.name, 'name') : current.name;

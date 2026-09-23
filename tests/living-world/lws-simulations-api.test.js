@@ -124,6 +124,14 @@ describe('LWS Phase 3 Simulation REST API Endpoints', () => {
             body: JSON.stringify({ status: 'active' }),
         });
         expect(res.status).toBe(400);
+
+        // current_fictional_time cannot be modified via PATCH
+        res = await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ current_fictional_time: '2026-07-01T12:00:00Z' }),
+        });
+        expect(res.status).toBe(400);
     });
 
     test('full SimulationCharacter lifecycle via API', async () => {

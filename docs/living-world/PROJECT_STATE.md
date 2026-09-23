@@ -103,26 +103,26 @@ Phase 3 establishes the canonical simulation runtime persistence layer in SQLite
 - **Schema & Migrations**:
   - `lws_simulations`: Runtime timeline instances scoped to a parent world, referencing an optional originating scenario, storing current fictional ISO 8601 UTC timestamp, lifecycle status (`active`, `paused`, `archived`), and arbitrary settings/extensions JSON.
   - `lws_simulation_characters`: Runtime character instances scoped to a parent simulation and authored character, storing current location, activity, physical condition, runtime state JSON, and an immutable frozen `authored_snapshot` JSON.
-- **Database Boundary Enforcement (10 Triggers)**:
-  - `trg_lws_simulations_world_id_immutable`: Blocks mutating `world_id` on simulations.
-  - `trg_lws_simulations_scenario_id_immutable`: Blocks mutating `scenario_id` on simulations.
-  - `trg_lws_simulations_scenario_same_world_insert`: Verifies scenario belongs to the same world upon insertion.
-  - `trg_lws_simulations_status_transition`: Enforces the explicit lifecycle matrix (`active` ⇄ `paused`, `active`/`paused` → `archived`, `archived` terminal).
-  - `trg_lws_sim_chars_simulation_id_immutable`: Blocks mutating `simulation_id` on runtime characters.
-  - `trg_lws_sim_chars_character_id_immutable`: Blocks mutating `character_id` on runtime characters.
-  - `trg_lws_sim_chars_snapshot_immutable`: Blocks mutating `authored_snapshot` on runtime characters.
-  - `trg_lws_sim_chars_character_same_world_insert`: Verifies authored character belongs to simulation's world.
-  - `trg_lws_sim_chars_location_same_world_insert`: Verifies starting location belongs to simulation's world.
-  - `trg_lws_sim_chars_location_insert` & `trg_lws_sim_chars_location_update`: Prevent newly assigning a soft-deleted location on insertion or update, while explicitly permitting updates to other fields when an existing reference points to a location that was later soft-deleted.
-- **Performance and Partial Indexes (5 Indexes)**:
-  - `idx_lws_simulations_world_status` on `lws_simulations(world_id, status)`
-  - `idx_lws_simulations_name_active` (partial unique index on `lws_simulations(world_id, name) WHERE deleted_at IS NULL COLLATE NOCASE`)
-  - `idx_lws_sim_chars_sim_char_active` (partial unique index on `lws_simulation_characters(simulation_id, character_id) WHERE deleted_at IS NULL`)
-  - `idx_lws_sim_chars_sim` on `lws_simulation_characters(simulation_id)`
-  - `idx_lws_sim_chars_location` on `lws_simulation_characters(current_location_id)`
+- **Database Boundary Enforcement (Exactly 10 Triggers)**:
+  1. `trg_lws_simulations_world_id_immutable`: Blocks mutating `world_id` on simulations.
+  2. `trg_lws_simulations_scenario_id_immutable`: Blocks mutating `scenario_id` on simulations.
+  3. `trg_lws_simulations_scenario_same_world_insert`: Verifies scenario belongs to the same world upon insertion.
+  4. `trg_lws_simulations_status_transition`: Enforces the explicit lifecycle matrix (`active` ⇄ `paused`, `active`/`paused` → `archived`, `archived` terminal).
+  5. `trg_lws_sim_chars_simulation_id_immutable`: Blocks mutating `simulation_id` on runtime characters.
+  6. `trg_lws_sim_chars_character_id_immutable`: Blocks mutating `character_id` on runtime characters.
+  7. `trg_lws_sim_chars_authored_snapshot_immutable`: Blocks mutating `authored_snapshot` on runtime characters.
+  8. `trg_lws_sim_chars_same_world_insert`: Verifies authored character belongs to simulation's world upon insertion.
+  9. `trg_lws_sim_chars_location_insert`: Verifies location belongs to simulation's world and blocks newly assigning a soft-deleted location on insertion.
+  10. `trg_lws_sim_chars_location_update`: Verifies location belongs to simulation's world and blocks newly assigning a soft-deleted location on update, while preserving existing references.
+- **Performance and Partial Indexes (Exactly 5 Indexes)**:
+  - `idx_lws_simulations_world` on `lws_simulations(world_id) WHERE deleted_at IS NULL`
+  - `idx_lws_simulations_name_active` (partial unique index on `lws_simulations(world_id, name COLLATE NOCASE) WHERE deleted_at IS NULL`)
+  - `idx_lws_sim_chars_sim` on `lws_simulation_characters(simulation_id) WHERE deleted_at IS NULL`
+  - `idx_lws_sim_chars_unique_active` (partial unique index on `lws_simulation_characters(simulation_id, character_id) WHERE deleted_at IS NULL`)
+  - `idx_lws_sim_chars_location` on `lws_simulation_characters(current_location_id) WHERE deleted_at IS NULL`
 - **Domain Services**:
-  - `simulations.js`: Simulation CRUD, scenario instantiation with atomic roster creation, status transition validation, and soft-deletion (allowed from `active`, `paused`, `archived`).
-  - `simulation-characters.js`: SimulationCharacter CRUD, runtime state mutations (`current_location_id`, `activity`, `physical_condition`, `runtime_state`), duplicate active character conflict rejection (409), soft-deleted location guard, and soft-delete.
+  - `simulations.js`: Simulation CRUD, scenario instantiation with atomic roster creation, status transition validation, and soft-deletion (allowed from `active`, `paused`, `archived`). Simulation soft-deletion sets `deleted_at = isoNow()`; child `lws_simulation_characters` rows remain physically intact in SQLite for audit and replay, while child routes return 404 via parent simulation status gating. `updateSimulation` permits updating `name`, `status`, `settings`, and `extensions`, while rejecting attempts to modify `world_id`, `scenario_id`, or `current_fictional_time` with HTTP 400.
+  - `simulation-characters.js`: SimulationCharacter CRUD, runtime state mutations (`current_location_id`, `activity`, `physical_condition`, `runtime_state`), duplicate active character conflict rejection (409), paused/archived mutation protection, soft-deleted location assignment guards, and soft-delete.
   - `common.js`: Semantic calendar validation (`validateFictionalTimestamp`) validating Gregorian leap years, days in month, and 24h clock bounds; status transition validation; and active world/simulation lookup.
 - **Hybrid Runtime Character Identity (ADR-011)**:
   - Runtime instance maintains independent identity, foreign key lineage to `lws_characters`, and a frozen immutable snapshot of authored fields captured at instantiation.
@@ -130,7 +130,7 @@ Phase 3 establishes the canonical simulation runtime persistence layer in SQLite
 - **Two-Simulation Isolation Proof**:
   - Verified that two concurrent simulations in the same world progress independently with different locations, activities, and conditions without state collision, and verified that soft-deleting authored cards does not corrupt running simulations.
 - **REST Transport (10 Endpoints)**:
-  - Fully authenticated routes mounted in `src/endpoints/living-world.js` for simulation and simulation character CRUD and queries, protected with deleted-World and deleted-Simulation gating.
+  - Fully authenticated routes mounted in `src/endpoints/living-world.js` for simulation and simulation character CRUD and queries, protected with deleted-World and deleted-Simulation gating. In `PATCH /simulations/:simLwsId`, `current_fictional_time` cannot be mutated (attempts return HTTP 400).
 
 #### 2. Future Scope Distinction (Phase 4+)
 - **Phase 4 Future Scope**: Event sourcing ledger (`lws_events`), causal ticks (`lws_ticks`), reducer architecture, and deterministic event replay. Zero event log tables or replay mechanics exist in Phase 3.
