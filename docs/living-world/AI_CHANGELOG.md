@@ -30,6 +30,105 @@ Known limitations or implications.
 
 ---
 
+## 2026-09-23 — Phase 4: Events, Authority, and State Transitions
+
+Status: IMPLEMENTED / VERIFIED
+
+### Change
+Implemented the authoritative event ledger, 4-stage authority pipeline, narrative turn savepoint execution model, pure in-memory zero-SQL replay engine, and REST endpoints for Living World Simulator (LWS):
+
+1. Created database migration `004_events_and_authority.js` elevating schema version to `PRAGMA user_version = 4`:
+   - Exactly 2 runtime tables: `lws_narrative_turns` and `lws_events`.
+   - Exactly 16 SQLite database triggers:
+     1. `trg_lws_events_immutable_all`: Rejects direct `UPDATE` on `lws_events`.
+     2. `trg_lws_events_no_delete`: Rejects direct `DELETE` on `lws_events`.
+     3. `trg_lws_events_sequence_monotonic`: Enforces monotonic sequence increments.
+     4. `trg_lws_events_fictional_time_matches_sim`: Enforces that event `fictional_time` matches simulation clock.
+     5. `trg_lws_events_same_sim_actor`: Enforces that `actor_character_id` belongs to the same simulation.
+     6. `trg_lws_events_same_sim_target`: Enforces that `target_character_id` belongs to the same simulation.
+     7. `trg_lws_events_same_world_location`: Enforces that `location_id` belongs to the simulation's world.
+     8. `trg_lws_events_same_sim_turn`: Enforces that `narrative_turn_id` belongs to the same simulation.
+     9. `trg_lws_events_causal_integrity`: Enforces that `causal_event_id` belongs to the same simulation and has a strictly preceding sequence.
+     10. `trg_lws_events_start_actor_prohibited`: Prohibits `actor_character_id` on `SIMULATION_START`.
+     11. `trg_lws_events_start_location_prohibited`: Prohibits `location_id` on `SIMULATION_START`.
+     12. `trg_lws_events_join_authored_required`: Requires valid `payload.character_id` on `CHARACTER_JOIN`.
+     13. `trg_lws_events_stop_reason_required`: Requires non-empty string `payload.reason` on `SIMULATION_STOP`.
+     14. `trg_lws_narrative_turns_status_terminal`: Enforces terminal statuses (`committed` and `rejected` cannot be updated).
+     15. `trg_lws_narrative_turns_immutable_fields`: Prohibits modifying immutable fields (`simulation_id`, `turn_number`, `prompt_message_id`, `user_message_id`) on narrative turns.
+     16. `trg_lws_narrative_turns_no_delete`: Rejects direct `DELETE` on narrative turns.
+   - Exactly 7 database indexes:
+     1. `idx_lws_events_sim_seq` (unique on `lws_events(simulation_id, sequence)`)
+     2. `idx_lws_events_sim_type` (on `lws_events(simulation_id, event_type)`)
+     3. `idx_lws_events_sim_actor` (on `lws_events(simulation_id, actor_character_id)`)
+     4. `idx_lws_events_turn` (on `lws_events(narrative_turn_id)`)
+     5. `idx_lws_events_idempotency` (on `lws_events(simulation_id, idempotency_key)`)
+     6. `idx_lws_narrative_turns_sim` (on `lws_narrative_turns(simulation_id)`)
+     7. `idx_lws_narrative_turns_sim_turn` (unique on `lws_narrative_turns(simulation_id, turn_number)`)
+2. Created events and authority domain modules under `src/living-world/events/`:
+   - `taxonomy.js`: Closed 29-event taxonomy (23 active Phase 4 events, 6 deferred Phase 5 events, 13 stateful events), deepMerge, and JSON schema payload validators.
+   - `authority.js`: 4-stage authority pipeline (Schema, Structural/Provenance, Domain, Authority Decision), enforcing that `system` and `simulation_engine` cannot be forged by external callers and `director` requires admin privileges.
+   - `state-transitions.js`: Transition handlers for all 13 stateful events, updating projections in SQLite.
+   - `events.js`: Monotonic sequence generation, SHA-256 idempotency fingerprinting, `commitEvent`, `getEventByLwsId`, and `listEvents`.
+   - `narrative-turns.js`: Two-transaction savepoint execution (`executeNarrativeTurn`), rollback to savepoint on failure, durable rejected turn persistence with `error_details` (HTTP 422), `getNarrativeTurnByLwsId`, and `listNarrativeTurns`.
+   - `replay.js`: Pure in-memory zero-SQL `simulationReducer`, `replaySimulation`, and canonical parity verification (`verifySimulationParity`).
+3. Refactored Phase 3 services in `src/living-world/simulations/`:
+   - `simulations.js`: `createSimulation`, `updateSimulation`, and `deleteSimulation` refactored to delegate state mutations strictly to `commitEvent` (`SIMULATION_START`, `DIRECTOR_MODIFY_STATE`, `SIMULATION_PAUSE`, `SIMULATION_RESUME`, `SIMULATION_STOP`).
+   - `simulation-characters.js`: `addSimulationCharacter`, `updateSimulationCharacter`, and `deleteSimulationCharacter` refactored to delegate strictly to `commitEvent` (`CHARACTER_JOIN`, `MOVE_CHARACTER`, `UPDATE_CHARACTER_ACTIVITY`, `UPDATE_PHYSICAL_CONDITION`, `UPDATE_RUNTIME_STATE`, `DIRECTOR_MODIFY_STATE`, `CHARACTER_LEAVE`).
+4. Mounted 7 REST endpoints in `src/endpoints/living-world.js`:
+   - `POST /api/living-world/simulations/:simLwsId/turns`
+   - `GET /api/living-world/simulations/:simLwsId/turns`
+   - `GET /api/living-world/simulations/:simLwsId/turns/:turnLwsId`
+   - `POST /api/living-world/simulations/:simLwsId/events`
+   - `GET /api/living-world/simulations/:simLwsId/events`
+   - `GET /api/living-world/simulations/:simLwsId/events/:eventLwsId`
+   - `GET /api/living-world/simulations/:simLwsId/replay-parity`
+5. Authored ADR-012 in `docs/living-world/decisions/ADR-012-authoritative-event-ledger-and-state-transitions.md`.
+
+### Reason
+Fulfills Phase 4 of the LWS implementation roadmap, establishing the core architectural invariant:
+"LLM/User Proposes -> Simulation Engine Decides -> Database Records Reality -> Narrative Presents Reality".
+
+### Files/modules
+- `src/living-world/migrations/004_events_and_authority.js`
+- `src/living-world/migrations/index.js`
+- `src/living-world/errors.js`
+- `src/living-world/events/taxonomy.js`
+- `src/living-world/events/authority.js`
+- `src/living-world/events/state-transitions.js`
+- `src/living-world/events/events.js`
+- `src/living-world/events/narrative-turns.js`
+- `src/living-world/events/replay.js`
+- `src/living-world/simulations/simulations.js`
+- `src/living-world/simulations/simulation-characters.js`
+- `src/living-world/index.js`
+- `src/endpoints/living-world.js`
+- `tests/living-world/lws-events-db.test.js`
+- `tests/living-world/lws-events-authority.test.js`
+- `tests/living-world/lws-events-transitions.test.js`
+- `tests/living-world/lws-narrative-turns.test.js`
+- `tests/living-world/lws-events-replay.test.js`
+- `tests/living-world/lws-events-api.test.js`
+- `docs/living-world/decisions/ADR-012-authoritative-event-ledger-and-state-transitions.md`
+- `docs/living-world/PERSISTENCE.md`
+- `docs/living-world/PROJECT_STATE.md`
+- `docs/living-world/AI_CHANGELOG.md`
+
+### Architecture
+- Enforces append-only immutable event ledger at SQLite engine level.
+- Enforces strict 4-stage authority validation. Server blocks unauthenticated provenance claims.
+- Decouples narrative turn audit persistence from proposal execution via two-transaction savepoint model.
+- Eliminates direct runtime row mutation bypasses in Phase 3 services.
+- Proves pure in-memory zero-SQL replay with 100% attribute parity against projected rows.
+
+### Tests
+- Full living-world test suite passes: 24 test suites, 183 tests.
+- Linters clean on root and tests (`npm run lint`, `npm --prefix tests run lint`).
+
+### Notes
+- Phase 5 systems (time advance, scheduled events, routines, travel calculations) remain strictly deferred to Phase 5.
+
+---
+
 ## 2026-09-23 — Phase 3: Simulation Runtime and Persistence
 
 Status: IMPLEMENTED / VERIFIED / ACCEPTED

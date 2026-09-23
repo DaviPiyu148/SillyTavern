@@ -52,7 +52,7 @@ Travel consumes fictional time; older instantaneous-travel interpretation is sup
 | **Phase 1** | **LWS Host Foundation** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Unit suite (`tests/living-world/`) passes (21/21 tests); ST full suite passes (432/432 tests); real ST server process lifecycle verified with live HTTP probe; clean shutdown verified; SQLite WAL DB created at `data/living-world/lws.db`. |
 | **Phase 2** | **Authored World and Character Model** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 002 applied (`PRAGMA user_version = 2`); exactly 9 authored tables, 12 DB triggers (cross-world relationship integrity & `world_id` immutability), 5 partial indexes; 7 authored domain services; 40+ REST endpoints under `/api/living-world/worlds`; ST V2 character mapped subset; full unit and integration test suites passing (32/32 suites, 499/499 tests); linters clean (0 errors). |
 | **Phase 3** | **Simulation Runtime and Persistence** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 003 applied (`PRAGMA user_version = 3`); exactly 2 runtime tables (`lws_simulations`, `lws_simulation_characters`), 10 DB triggers, 5 indexes; Simulation & SimulationCharacter domain services; scenario instantiation with atomic roster snapshotting; Two-Simulation Isolation proven; status transition matrix; semantic calendar date validation; soft-deleted location assignment guards; 10 authenticated REST endpoints; full test suites passing (37/37 suites, 543/543 tests); linters clean (0 errors). |
-| Phase 4 | Events, Authority, and State Transitions | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
+| **Phase 4** | **Events, Authority, and State Transitions** | **IMPLEMENTED & VERIFIED** | Migration 004 applied (`PRAGMA user_version = 4`); tables `lws_events` and `lws_narrative_turns`; exactly 16 DB triggers; exactly 7 DB indexes; closed 29-event taxonomy (23 active Phase 4, 6 deferred Phase 5, 13 stateful); 4-stage authority pipeline; server-enforced provenance; Phase 3 mutation bypasses eliminated; two-transaction savepoint execution with durable rejected-turn persistence; pure in-memory zero-SQL replay engine (`replaySimulation`) with 100% parity verification (`verifySimulationParity`); 7 REST endpoints; 24 test suites / 183 tests passing; linters clean (0 errors); ADR-012 authored. |
 | Phase 5 | Fictional Time, Schedules, Routines, and Travel | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
 | Phase 6 | Perception, Knowledge, Memory, and Observation | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
 | Phase 7 | Character Cognition and Decision Making | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
@@ -132,9 +132,49 @@ Phase 3 establishes the canonical simulation runtime persistence layer in SQLite
 - **REST Transport (10 Endpoints)**:
   - Fully authenticated routes mounted in `src/endpoints/living-world.js` for simulation and simulation character CRUD and queries, protected with deleted-World and deleted-Simulation gating. In `PATCH /simulations/:simLwsId`, `current_fictional_time` cannot be mutated (attempts return HTTP 400).
 
-#### 2. Future Scope Distinction (Phase 4+)
-- **Phase 4 Future Scope**: Event sourcing ledger (`lws_events`), causal ticks (`lws_ticks`), reducer architecture, and deterministic event replay. Zero event log tables or replay mechanics exist in Phase 3.
-- **Phase 5 Future Scope**: Fictional time progression engine, scheduled routines, and travel calculation across space. Current fictional time advances only via explicit runtime state updates.
+### Phase 4 Implementation Details and Scope Distinction
+
+Phase 4 establishes the authoritative event ledger, narrative turn savepoint model, authority evaluation pipeline, and deterministic replay engine in SQLite under migration `004_events_and_authority` (`PRAGMA user_version = 4`).
+
+#### 1. Implemented Phase 4 Scope
+- **Schema & Migrations**:
+  - `lws_narrative_turns`: Narrative turn tracking referencing chat/prompt IDs, execution status (`pending`, `committed`, `rejected`), error details, and extensions JSON.
+  - `lws_events`: Authoritative, append-only event ledger tracking simulation sequences, closed event types, fictional timestamps, actors, targets, locations, narrative turn association, causal event links, structured payload, provenance, and SHA-256 idempotency keys.
+- **Database Boundary Enforcement (Exactly 16 Triggers)**:
+  1. `trg_lws_events_immutable_all`: Rejects direct `UPDATE` on `lws_events`.
+  2. `trg_lws_events_no_delete`: Rejects direct `DELETE` on `lws_events`.
+  3. `trg_lws_events_sequence_monotonic`: Enforces monotonic sequence increments.
+  4. `trg_lws_events_fictional_time_matches_sim`: Enforces that event `fictional_time` matches simulation clock.
+  5. `trg_lws_events_same_sim_actor`: Enforces that `actor_character_id` belongs to the same simulation.
+  6. `trg_lws_events_same_sim_target`: Enforces that `target_character_id` belongs to the same simulation.
+  7. `trg_lws_events_same_world_location`: Enforces that `location_id` belongs to the simulation's world.
+  8. `trg_lws_events_same_sim_turn`: Enforces that `narrative_turn_id` belongs to the same simulation.
+  9. `trg_lws_events_causal_integrity`: Enforces that `causal_event_id` belongs to the same simulation and has a strictly preceding sequence.
+  10. `trg_lws_events_start_actor_prohibited`: Prohibits `actor_character_id` on `SIMULATION_START`.
+  11. `trg_lws_events_start_location_prohibited`: Prohibits `location_id` on `SIMULATION_START`.
+  12. `trg_lws_events_join_authored_required`: Requires valid `payload.character_id` on `CHARACTER_JOIN`.
+  13. `trg_lws_events_stop_reason_required`: Requires non-empty string `payload.reason` on `SIMULATION_STOP`.
+  14. `trg_lws_narrative_turns_status_terminal`: Enforces terminal statuses (`committed` and `rejected` cannot be updated).
+  15. `trg_lws_narrative_turns_immutable_fields`: Prohibits modifying immutable fields (`simulation_id`, `turn_number`, `prompt_message_id`, `user_message_id`) on narrative turns.
+  16. `trg_lws_narrative_turns_no_delete`: Rejects direct `DELETE` on narrative turns.
+- **Indexes (Exactly 7 Indexes)**:
+  - `idx_lws_events_sim_seq` (unique), `idx_lws_events_sim_type`, `idx_lws_events_sim_actor`, `idx_lws_events_turn`, `idx_lws_events_idempotency`, `idx_lws_narrative_turns_sim`, `idx_lws_narrative_turns_sim_turn` (unique).
+- **Closed 29-Event Taxonomy**:
+  - 23 active Phase 4 events, 6 deferred Phase 5 events, exactly 13 stateful events projecting into SQLite runtime tables.
+- **Four-Stage Authority Evaluation Pipeline**:
+  - Evaluates Schema (Stage 1), Structural & Provenance checks (Stage 2: server-enforced provenance blocking client forgery of `system`, `simulation_engine`, and unauthorized `director`), Domain rules (Stage 3), and Authority Decision (Stage 4).
+- **Elimination of Phase 3 Mutation Bypasses**:
+  - Direct updates to `lws_simulations` and `lws_simulation_characters` are eliminated; all runtime mutations delegate strictly through `commitEvent`.
+- **Two-Transaction Savepoint Execution for Narrative Turns**:
+  - Transaction A commits turn record; Transaction B runs under `SAVEPOINT proposal_batch`. Failures roll back proposal mutations while preserving durable rejected turn audits with `error_details` (HTTP 422).
+- **Pure In-Memory Zero-SQL Replay Engine**:
+  - `replaySimulation(events)` folds event history in pure memory without SQL queries.
+  - `verifySimulationParity(simLwsId)` verifies 100% attribute parity against projected SQLite rows.
+- **REST API (7 Endpoints)**:
+  - Mounts narrative turn execution, queries, event emission, listing, detail, and replay parity endpoints under `/api/living-world/simulations/:simLwsId/*`.
+
+#### 2. Future Scope Distinction (Phase 5+)
+- **Phase 5 Future Scope**: Fictional time progression engine, scheduled routines, and travel calculation across space. Current fictional time advances only via explicit event commits.
 
 ## Status labels
 

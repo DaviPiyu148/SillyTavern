@@ -1,6 +1,7 @@
 import { up as migration001Up } from './001_initial.js';
 import { up as migration002Up } from './002_authored_model.js';
 import { up as migration003Up } from './003_simulation_runtime.js';
+import { up as migration004Up } from './004_events_and_authority.js';
 
 /**
  * Ordered list of all LWS migrations.
@@ -24,6 +25,11 @@ export const MIGRATIONS = Object.freeze([
         version: 3,
         name: '003_simulation_runtime',
         up: migration003Up,
+    },
+    {
+        version: 4,
+        name: '004_events_and_authority',
+        up: migration004Up,
     },
 ]);
 

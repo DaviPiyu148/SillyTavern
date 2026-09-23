@@ -5,6 +5,8 @@ import {
     LwsValidationError,
     LwsNotFoundError,
     LwsConflictError,
+    LwsAuthorityError,
+    LwsTurnRejectedError,
     createWorld,
     getWorldByLwsId,
     listWorlds,
@@ -54,6 +56,13 @@ import {
     listSimulationCharacters,
     updateSimulationCharacter,
     deleteSimulationCharacter,
+    commitEvent,
+    getEventByLwsId,
+    listEvents,
+    executeNarrativeTurn,
+    getNarrativeTurnByLwsId,
+    listNarrativeTurns,
+    verifySimulationParity,
 } from '../living-world/index.js';
 import { isValidUuid } from '../living-world/authored/common.js';
 
@@ -75,6 +84,15 @@ function handleRouteError(err, res, routeName) {
     }
     if (err instanceof LwsConflictError) {
         return res.status(409).json({ error: err.message });
+    }
+    if (err instanceof LwsAuthorityError) {
+        if (err.code === 'DIRECTOR_UNAUTHORIZED' || err.code === 'FORBIDDEN_PROVENANCE') {
+            return res.status(403).json({ error: err.message, code: err.code });
+        }
+        return res.status(422).json({ error: err.message, code: err.code, fields: err.fields ?? [] });
+    }
+    if (err instanceof LwsTurnRejectedError) {
+        return res.status(422).json(err.turn);
     }
     console.error(`[LWS API] Unexpected error in ${routeName}:`, err.message);
     return res.status(500).json({ error: 'Internal error' });
@@ -712,6 +730,105 @@ router.delete('/simulations/:simLwsId/characters/:simCharLwsId', (req, res) => {
         return res.status(204).send();
     } catch (err) {
         return handleRouteError(err, res, 'DELETE /simulations/:simLwsId/characters/:simCharLwsId');
+    }
+});
+
+// ====================================================================
+// Events, Turns, and Replay (Phase 4)
+// ====================================================================
+
+// 1. POST /simulations/:simLwsId/events
+router.post('/simulations/:simLwsId/events', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const callerContext = {
+            user: req.user,
+            isAdmin: req.user?.profile?.admin === true,
+        };
+        const event = commitEvent(req.params.simLwsId, req.body ?? {}, callerContext);
+        return res.status(201).json(event);
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/events');
+    }
+});
+
+// 2. GET /simulations/:simLwsId/events
+router.get('/simulations/:simLwsId/events', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const events = listEvents(req.params.simLwsId, req.query ?? {});
+        return res.json(events);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/events');
+    }
+});
+
+// 3. GET /simulations/:simLwsId/events/:eventLwsId
+router.get('/simulations/:simLwsId/events/:eventLwsId', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, eventLwsId: req.params.eventLwsId }, res)) return;
+    try {
+        const event = getEventByLwsId(req.params.simLwsId, req.params.eventLwsId);
+        return res.json(event);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/events/:eventLwsId');
+    }
+});
+
+// 4. POST /simulations/:simLwsId/turns
+router.post('/simulations/:simLwsId/turns', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const callerContext = {
+            user: req.user,
+            isAdmin: req.user?.profile?.admin === true,
+        };
+        const result = executeNarrativeTurn(req.params.simLwsId, req.body ?? {}, callerContext);
+        if (!result.success) {
+            return res.status(422).json(result.turn);
+        }
+        return res.status(201).json(result.turn);
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/turns');
+    }
+});
+
+// 5. GET /simulations/:simLwsId/turns
+router.get('/simulations/:simLwsId/turns', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const turns = listNarrativeTurns(req.params.simLwsId, req.query ?? {});
+        return res.json(turns);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/turns');
+    }
+});
+
+// 6. GET /simulations/:simLwsId/turns/:turnLwsId
+router.get('/simulations/:simLwsId/turns/:turnLwsId', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, turnLwsId: req.params.turnLwsId }, res)) return;
+    try {
+        const turn = getNarrativeTurnByLwsId(req.params.simLwsId, req.params.turnLwsId);
+        return res.json(turn);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/turns/:turnLwsId');
+    }
+});
+
+// 7. POST /simulations/:simLwsId/replay-verify
+router.post('/simulations/:simLwsId/replay-verify', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const result = verifySimulationParity(req.params.simLwsId);
+        return res.json(result);
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/replay-verify');
     }
 });
 

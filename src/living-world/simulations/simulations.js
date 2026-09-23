@@ -12,6 +12,8 @@ import {
     validateFictionalTimestamp,
     validateStatusTransition,
 } from './common.js';
+import { EVENT_TYPES } from '../events/taxonomy.js';
+import { internalCommitEvent, commitEvent } from '../events/events.js';
 
 /**
  * Formats a database row for public presentation.
@@ -36,7 +38,8 @@ function formatSimulation(row) {
 
 /**
  * Creates and persists a Simulation in a World.
- * If scenario_id is supplied, atomically instantiates active roster characters.
+ * Atomically emits system SIMULATION_START event (seq 1),
+ * and instantiates scenario roster characters through sequential CHARACTER_JOIN events (seq 2..N).
  *
  * @param {string} worldLwsId
  * @param {object} input
@@ -105,7 +108,7 @@ export function createSimulation(worldLwsId, input = {}) {
                 ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
             `);
 
-            const result = stmt.run(
+            stmt.run(
                 simLwsId,
                 world.id,
                 scenario ? scenario.id : null,
@@ -117,47 +120,41 @@ export function createSimulation(worldLwsId, input = {}) {
                 now,
             );
 
-            const simInternalId = Number(result.lastInsertRowid);
+            const simRow = db.prepare('SELECT * FROM lws_simulations WHERE lws_id = ?').get(simLwsId);
 
-            // Populate simulation characters from scenario roster
+            // 1. Emit system SIMULATION_START event (Sequence #1)
+            internalCommitEvent(db, simRow, {
+                event_type: EVENT_TYPES.SIMULATION_START,
+                fictional_time: initialFictionalTime,
+                provenance: 'system',
+                payload: {
+                    scenario_id: scenario ? scenario.lws_id : null,
+                    initial_fictional_time: initialFictionalTime,
+                    settings,
+                },
+            }, { isInternalSystem: true });
+
+            // 2. Populate simulation characters from scenario roster via sequential CHARACTER_JOIN events (Sequence #2..N)
             if (rosterCharacters.length > 0) {
-                const insertCharStmt = db.prepare(`
-                    INSERT INTO lws_simulation_characters (
-                        lws_id, simulation_id, character_id, current_location_id,
-                        activity, physical_condition, runtime_state, authored_snapshot,
-                        created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, 'idle', 'normal', ?, ?, ?, ?)
-                `);
+                let startLocLwsId = null;
+                if (scenario?.starting_location_id) {
+                    const startLoc = db.prepare('SELECT lws_id FROM lws_locations WHERE id = ?').get(scenario.starting_location_id);
+                    startLocLwsId = startLoc?.lws_id ?? null;
+                }
 
                 for (const char of rosterCharacters) {
-                    const charSnapshot = {
-                        name: char.name,
-                        description: char.description,
-                        personality: char.personality,
-                        scenario_context: char.scenario_context,
-                        mes_example: char.mes_example,
-                        author_notes: char.author_notes,
-                        system_prompt_override: char.system_prompt_override,
-                        source_version: char.source_version,
-                        tags: safeJsonParse(char.tags, []),
-                        extensions: safeJsonParse(char.extensions, {}),
-                    };
-
-                    const initialRuntimeState = {
-                        role: char.role || '',
-                        condition: 'normal',
-                    };
-
-                    insertCharStmt.run(
-                        generateUuid(),
-                        simInternalId,
-                        char.id,
-                        scenario.starting_location_id,
-                        JSON.stringify(initialRuntimeState),
-                        JSON.stringify(charSnapshot),
-                        now,
-                        now,
-                    );
+                    internalCommitEvent(db, simRow, {
+                        event_type: EVENT_TYPES.CHARACTER_JOIN,
+                        fictional_time: initialFictionalTime,
+                        provenance: 'system',
+                        location_id: startLocLwsId,
+                        payload: {
+                            character_id: char.lws_id,
+                            activity: 'idle',
+                            physical_condition: 'normal',
+                            runtime_state: { role: char.role || '', condition: 'normal' },
+                        },
+                    }, { isInternalSystem: true });
                 }
             }
         });
@@ -178,19 +175,24 @@ export function createSimulation(worldLwsId, input = {}) {
 
 /**
  * Retrieves an active Simulation by UUID.
+ *
  * @param {string} simLwsId
- * @returns {object}
+ * @returns {object} The Simulation
  */
 export function getSimulationByLwsId(simLwsId) {
-    const db = getDb();
-    ensureActiveSimulation(db, simLwsId);
+    if (!isValidUuid(simLwsId)) {
+        throw new LwsValidationError('Invalid simulation UUID format', ['simLwsId']);
+    }
 
+    const db = getDb();
     const row = db.prepare(`
-        SELECT s.*, w.lws_id AS world_lws_id, sc.lws_id AS scenario_lws_id
+        SELECT s.*,
+               w.lws_id AS world_lws_id,
+               sc.lws_id AS scenario_lws_id
         FROM lws_simulations s
         JOIN lws_worlds w ON s.world_id = w.id
         LEFT JOIN lws_scenarios sc ON s.scenario_id = sc.id
-        WHERE s.lws_id = ? AND s.deleted_at IS NULL
+        WHERE s.lws_id = ? AND s.deleted_at IS NULL AND w.deleted_at IS NULL
     `).get(simLwsId);
 
     if (!row) {
@@ -201,18 +203,20 @@ export function getSimulationByLwsId(simLwsId) {
 }
 
 /**
- * Lists active Simulations in a World.
+ * Lists non-deleted Simulations in a World.
+ *
  * @param {string} worldLwsId
  * @param {object} [options]
- * @param {string} [options.status] Optional status filter ('active', 'paused', 'archived')
  * @returns {object[]}
  */
 export function listSimulations(worldLwsId, options = {}) {
     const db = getDb();
     const world = ensureActiveWorld(db, worldLwsId);
 
-    let sql = `
-        SELECT s.*, w.lws_id AS world_lws_id, sc.lws_id AS scenario_lws_id
+    let query = `
+        SELECT s.*,
+               w.lws_id AS world_lws_id,
+               sc.lws_id AS scenario_lws_id
         FROM lws_simulations s
         JOIN lws_worlds w ON s.world_id = w.id
         LEFT JOIN lws_scenarios sc ON s.scenario_id = sc.id
@@ -221,21 +225,21 @@ export function listSimulations(worldLwsId, options = {}) {
     const params = [world.id];
 
     if (options.status) {
-        if (!['active', 'paused', 'archived'].includes(options.status)) {
-            throw new LwsValidationError(`Invalid status filter '${options.status}'`, ['status']);
-        }
-        sql += ' AND s.status = ?';
+        query += ' AND s.status = ?';
         params.push(options.status);
     }
 
-    sql += ' ORDER BY s.created_at DESC';
+    query += ' ORDER BY s.created_at ASC';
 
-    const rows = db.prepare(sql).all(...params);
+    const rows = db.prepare(query).all(...params);
     return rows.map(formatSimulation);
 }
 
 /**
- * Updates an active Simulation.
+ * Updates a Simulation.
+ * Delegates lifecycle status transitions and operational settings updates through the event engine.
+ * Directly updates display metadata (name) on lws_simulations.
+ *
  * @param {string} simLwsId
  * @param {object} patch
  * @returns {object}
@@ -256,55 +260,70 @@ export function updateSimulation(simLwsId, patch = {}) {
         throw new LwsValidationError('current_fictional_time cannot be modified via PATCH', ['current_fictional_time']);
     }
 
-    const name = patch.name !== undefined ? validateName(patch.name, 'name') : current.name;
-    const status = patch.status !== undefined
-        ? validateStatusTransition(current.status, patch.status)
-        : current.status;
-    const settings = patch.settings !== undefined
-        ? validateExtensions(patch.settings, 'settings')
-        : safeJsonParse(current.settings, {});
-    const extensions = patch.extensions !== undefined
-        ? validateExtensions(patch.extensions, 'extensions')
-        : safeJsonParse(current.extensions, {});
+    // 1. Status transition via event engine
+    if (patch.status !== undefined && patch.status !== current.status) {
+        validateStatusTransition(current.status, patch.status);
+        let eventType;
+        if (patch.status === 'paused') eventType = EVENT_TYPES.SIMULATION_PAUSE;
+        else if (patch.status === 'active') eventType = EVENT_TYPES.SIMULATION_RESUME;
+        else if (patch.status === 'archived') eventType = EVENT_TYPES.SIMULATION_STOP;
 
-    const now = isoNow();
+        commitEvent(simLwsId, {
+            event_type: eventType,
+            provenance: 'user',
+        });
+    }
 
-    try {
-        const stmt = db.prepare(`
-            UPDATE lws_simulations
-            SET name = ?, status = ?, settings = ?, extensions = ?, updated_at = ?
-            WHERE lws_id = ? AND deleted_at IS NULL
-        `);
+    // 2. Settings or extensions patch via event engine
+    if (patch.settings !== undefined) {
+        const validatedSettings = validateExtensions(patch.settings, 'settings');
+        commitEvent(simLwsId, {
+            event_type: EVENT_TYPES.DIRECTOR_MODIFY_STATE,
+            payload: {
+                target: 'simulation',
+                settings_patch: validatedSettings,
+            },
+            provenance: 'director',
+        }, { isInternalSystem: true });
+    }
 
-        stmt.run(name, status, JSON.stringify(settings), JSON.stringify(extensions), now, simLwsId);
-    } catch (err) {
-        if (err.message && err.message.includes('UNIQUE constraint failed')) {
-            throw new LwsConflictError(`Simulation with name '${name}' already exists in this world`);
+    // 3. Display name update (pure presentation metadata)
+    if (patch.name !== undefined) {
+        const name = validateName(patch.name, 'name');
+        try {
+            db.prepare(`
+                UPDATE lws_simulations
+                SET name = ?, updated_at = ?
+                WHERE lws_id = ? AND deleted_at IS NULL
+            `).run(name, isoNow(), simLwsId);
+        } catch (err) {
+            if (err.message && err.message.includes('UNIQUE constraint failed')) {
+                throw new LwsConflictError(`Simulation with name '${name}' already exists in this world`);
+            }
+            throw err;
         }
-        if (err.message && err.message.includes('RAISE(ABORT')) {
-            throw new LwsValidationError(err.message.replace(/^.*?RAISE\(ABORT,\s*'(.*?)'\).*$/, '$1'));
-        }
-        throw err;
     }
 
     return getSimulationByLwsId(simLwsId);
 }
 
 /**
- * Soft-deletes a Simulation.
+ * Soft-deletes a Simulation via terminal SIMULATION_STOP event.
+ * Operates across active, paused, and archived simulations.
+ *
  * @param {string} simLwsId
  * @returns {boolean}
  */
 export function deleteSimulation(simLwsId) {
     const db = getDb();
-    const current = ensureActiveSimulation(db, simLwsId);
+    ensureActiveSimulation(db, simLwsId);
 
-    const now = isoNow();
-    const result = db.prepare(`
-        UPDATE lws_simulations
-        SET deleted_at = ?, updated_at = ?
-        WHERE id = ? AND deleted_at IS NULL
-    `).run(now, now, current.id);
+    // Commit terminal SIMULATION_STOP { action: 'delete' }
+    commitEvent(simLwsId, {
+        event_type: EVENT_TYPES.SIMULATION_STOP,
+        payload: { action: 'delete' },
+        provenance: 'user',
+    }, { isInternalSystem: true });
 
-    return result.changes > 0;
+    return true;
 }

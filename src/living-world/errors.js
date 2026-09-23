@@ -41,3 +41,29 @@ export class LwsConflictError extends LwsError {
         this.name = 'LwsConflictError';
     }
 }
+
+export class LwsAuthorityError extends LwsError {
+    /**
+     * @param {string} message
+     * @param {string} [code]
+     * @param {string[]} [fields]
+     */
+    constructor(message = 'Proposed action rejected by simulation authority', code = 'AUTHORITY_ERROR', fields = []) {
+        super(message);
+        this.name = 'LwsAuthorityError';
+        this.code = code;
+        this.fields = fields;
+    }
+}
+
+export class LwsTurnRejectedError extends LwsError {
+    /**
+     * @param {object} turn
+     */
+    constructor(turn) {
+        super(turn?.error_details ? `Narrative turn rejected: ${turn.error_details}` : 'Narrative turn rejected');
+        this.name = 'LwsTurnRejectedError';
+        this.turn = turn;
+    }
+}
+

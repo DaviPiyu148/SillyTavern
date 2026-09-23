@@ -16,9 +16,9 @@ describe('LWS Database Foundation and Migrations', () => {
         }
     });
 
-    test('applies migrations 001, 002, and 003 and sets PRAGMA user_version to 3', () => {
+    test('applies migrations 001, 002, 003, and 004 and sets PRAGMA user_version to 4', () => {
         const userVersion = memoryDb.pragma('user_version', { simple: true });
-        expect(userVersion).toBe(3);
+        expect(userVersion).toBe(4);
     });
 
     test('creates lws_meta table and stores initialized_at metadata', () => {
@@ -82,10 +82,10 @@ describe('LWS Database Foundation and Migrations', () => {
 
     test('migrations are idempotent and do not fail or alter version when re-executed', () => {
         const versionBefore = memoryDb.pragma('user_version', { simple: true });
-        expect(versionBefore).toBe(3);
+        expect(versionBefore).toBe(4);
 
         const versionAfter = runMigrations(memoryDb);
-        expect(versionAfter).toBe(3);
+        expect(versionAfter).toBe(4);
 
         const count = memoryDb.prepare('SELECT COUNT(*) as cnt FROM lws_meta').get();
         expect(count.cnt).toBe(1);
@@ -124,7 +124,7 @@ describe('LWS Database Foundation and Migrations', () => {
             // Reopen the same file
             const reopenedDb = new Database(dbPath);
             const userVersion = reopenedDb.pragma('user_version', { simple: true });
-            expect(userVersion).toBe(3);
+            expect(userVersion).toBe(4);
 
             const row = reopenedDb.prepare('SELECT value FROM lws_meta WHERE key = ?').get('test_key');
             expect(row?.value).toBe('test_val');

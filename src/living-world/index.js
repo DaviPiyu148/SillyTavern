@@ -83,3 +83,9 @@ export * from './authored/world-rules.js';
 export * from './authored/prompt-configs.js';
 export * from './simulations/simulations.js';
 export * from './simulations/simulation-characters.js';
+export * from './events/taxonomy.js';
+export * from './events/authority.js';
+export * from './events/events.js';
+export * from './events/narrative-turns.js';
+export * from './events/replay.js';
+

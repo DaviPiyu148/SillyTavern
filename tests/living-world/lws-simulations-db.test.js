@@ -12,9 +12,9 @@ describe('LWS Migration 003: Simulation Runtime Database and Integrity', () => {
         closeTestDb(db);
     });
 
-    test('applies migration 003 and elevates PRAGMA user_version to 3', () => {
+    test('applies migration 003 and elevates PRAGMA user_version to at least 3', () => {
         const version = Number(db.pragma('user_version', { simple: true }));
-        expect(version).toBe(3);
+        expect(version).toBeGreaterThanOrEqual(3);
     });
 
     test('creates lws_simulations and lws_simulation_characters tables', () => {
