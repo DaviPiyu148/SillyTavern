@@ -12,13 +12,14 @@
 
 The inspected host contains the standard SillyTavern structure: `src/`, `src/endpoints/`, `public/`, `public/scripts/`, `plugins/`, `data/`, and `tests/`.
 
-As of Phase 2 completion, the native LWS subsystem namespace and authored domain models are established and integrated:
-- `src/living-world/` (errors, db, migrations, authored domain services, index)
+As of Phase 3 completion, the native LWS subsystem namespace, authored domain models, and simulation runtime persistence are established and integrated:
+- `src/living-world/` (errors, db, migrations, authored domain services, simulations runtime services, index)
 - `src/living-world/authored/` (worlds, characters, locations, factions, scenarios, world-rules, prompt-configs, common)
-- `src/endpoints/living-world.js` (status, ping, and complete authored REST endpoints)
+- `src/living-world/simulations/` (simulations, simulation-characters, common)
+- `src/endpoints/living-world.js` (status, ping, authored REST endpoints, and simulation runtime REST endpoints)
 - `public/scripts/living-world/`
 - `data/living-world/`
-- `tests/living-world/` (comprehensive suites covering DB, migrations, authored services, cross-world integrity triggers, immutability, and REST endpoints)
+- `tests/living-world/` (comprehensive suites covering DB, migrations, authored services, simulations runtime, two-simulation isolation, cross-world integrity triggers, immutability, and REST endpoints)
 
 ## Designed and accepted
 
@@ -50,7 +51,7 @@ Travel consumes fictional time; older instantaneous-travel interpretation is sup
 |---|---|---|---|
 | **Phase 1** | **LWS Host Foundation** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Unit suite (`tests/living-world/`) passes (21/21 tests); ST full suite passes (432/432 tests); real ST server process lifecycle verified with live HTTP probe; clean shutdown verified; SQLite WAL DB created at `data/living-world/lws.db`. |
 | **Phase 2** | **Authored World and Character Model** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 002 applied (`PRAGMA user_version = 2`); exactly 9 authored tables, 12 DB triggers (cross-world relationship integrity & `world_id` immutability), 5 partial indexes; 7 authored domain services; 40+ REST endpoints under `/api/living-world/worlds`; ST V2 character mapped subset; full unit and integration test suites passing (32/32 suites, 499/499 tests); linters clean (0 errors). |
-| Phase 3 | Simulation Runtime and Persistence | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
+| **Phase 3** | **Simulation Runtime and Persistence** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 003 applied (`PRAGMA user_version = 3`); exactly 2 runtime tables (`lws_simulations`, `lws_simulation_characters`), 10 DB triggers, 5 indexes; Simulation & SimulationCharacter domain services; scenario instantiation with atomic roster snapshotting; Two-Simulation Isolation proven; status transition matrix; semantic calendar date validation; soft-deleted location assignment guards; 10 authenticated REST endpoints; full test suites passing (37/37 suites, 543/543 tests); linters clean (0 errors). |
 | Phase 4 | Events, Authority, and State Transitions | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
 | Phase 5 | Fictional Time, Schedules, Routines, and Travel | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
 | Phase 6 | Perception, Knowledge, Memory, and Observation | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
@@ -91,8 +92,49 @@ The implemented Phase 2 contains two capabilities that were not explicitly prese
   - Enforces case-insensitive uniqueness of active entity names within their world scope (and global scope for active worlds).
   - Uniqueness is restricted to active records (`deleted_at IS NULL`), allowing a soft-deleted entity's name to be reused by a new active entity.
 
-#### 3. Future Scope Distinction (Phase 3+)
-- **Phase 3 Future Scope**: Simulation instances (`Simulation`), runtime characters (`SimulationCharacter`), runtime location assignments/activity, physical condition, needs/inventory, simulation isolation, and mutable runtime state machines. Zero mutable runtime simulation state is implemented in Phase 2.
+#### 3. Scope Distinction from Prior Phases
+- Phase 2 established solely the authored foundation. Zero mutable runtime simulation state existed prior to Phase 3.
+
+### Phase 3 Implementation Details and Scope Distinction
+
+Phase 3 establishes the canonical simulation runtime persistence layer in SQLite under migration `003_simulation_runtime` (`PRAGMA user_version = 3`).
+
+#### 1. Implemented Phase 3 Scope
+- **Schema & Migrations**:
+  - `lws_simulations`: Runtime timeline instances scoped to a parent world, referencing an optional originating scenario, storing current fictional ISO 8601 UTC timestamp, lifecycle status (`active`, `paused`, `archived`), and arbitrary settings/extensions JSON.
+  - `lws_simulation_characters`: Runtime character instances scoped to a parent simulation and authored character, storing current location, activity, physical condition, runtime state JSON, and an immutable frozen `authored_snapshot` JSON.
+- **Database Boundary Enforcement (10 Triggers)**:
+  - `trg_lws_simulations_world_id_immutable`: Blocks mutating `world_id` on simulations.
+  - `trg_lws_simulations_scenario_id_immutable`: Blocks mutating `scenario_id` on simulations.
+  - `trg_lws_simulations_scenario_same_world_insert`: Verifies scenario belongs to the same world upon insertion.
+  - `trg_lws_simulations_status_transition`: Enforces the explicit lifecycle matrix (`active` ⇄ `paused`, `active`/`paused` → `archived`, `archived` terminal).
+  - `trg_lws_sim_chars_simulation_id_immutable`: Blocks mutating `simulation_id` on runtime characters.
+  - `trg_lws_sim_chars_character_id_immutable`: Blocks mutating `character_id` on runtime characters.
+  - `trg_lws_sim_chars_snapshot_immutable`: Blocks mutating `authored_snapshot` on runtime characters.
+  - `trg_lws_sim_chars_character_same_world_insert`: Verifies authored character belongs to simulation's world.
+  - `trg_lws_sim_chars_location_same_world_insert`: Verifies starting location belongs to simulation's world.
+  - `trg_lws_sim_chars_location_insert` & `trg_lws_sim_chars_location_update`: Prevent newly assigning a soft-deleted location on insertion or update, while explicitly permitting updates to other fields when an existing reference points to a location that was later soft-deleted.
+- **Performance and Partial Indexes (5 Indexes)**:
+  - `idx_lws_simulations_world_status` on `lws_simulations(world_id, status)`
+  - `idx_lws_simulations_name_active` (partial unique index on `lws_simulations(world_id, name) WHERE deleted_at IS NULL COLLATE NOCASE`)
+  - `idx_lws_sim_chars_sim_char_active` (partial unique index on `lws_simulation_characters(simulation_id, character_id) WHERE deleted_at IS NULL`)
+  - `idx_lws_sim_chars_sim` on `lws_simulation_characters(simulation_id)`
+  - `idx_lws_sim_chars_location` on `lws_simulation_characters(current_location_id)`
+- **Domain Services**:
+  - `simulations.js`: Simulation CRUD, scenario instantiation with atomic roster creation, status transition validation, and soft-deletion (allowed from `active`, `paused`, `archived`).
+  - `simulation-characters.js`: SimulationCharacter CRUD, runtime state mutations (`current_location_id`, `activity`, `physical_condition`, `runtime_state`), duplicate active character conflict rejection (409), soft-deleted location guard, and soft-delete.
+  - `common.js`: Semantic calendar validation (`validateFictionalTimestamp`) validating Gregorian leap years, days in month, and 24h clock bounds; status transition validation; and active world/simulation lookup.
+- **Hybrid Runtime Character Identity (ADR-011)**:
+  - Runtime instance maintains independent identity, foreign key lineage to `lws_characters`, and a frozen immutable snapshot of authored fields captured at instantiation.
+  - Runtime mutations never alter or write to `lws_characters`.
+- **Two-Simulation Isolation Proof**:
+  - Verified that two concurrent simulations in the same world progress independently with different locations, activities, and conditions without state collision, and verified that soft-deleting authored cards does not corrupt running simulations.
+- **REST Transport (10 Endpoints)**:
+  - Fully authenticated routes mounted in `src/endpoints/living-world.js` for simulation and simulation character CRUD and queries, protected with deleted-World and deleted-Simulation gating.
+
+#### 2. Future Scope Distinction (Phase 4+)
+- **Phase 4 Future Scope**: Event sourcing ledger (`lws_events`), causal ticks (`lws_ticks`), reducer architecture, and deterministic event replay. Zero event log tables or replay mechanics exist in Phase 3.
+- **Phase 5 Future Scope**: Fictional time progression engine, scheduled routines, and travel calculation across space. Current fictional time advances only via explicit runtime state updates.
 
 ## Status labels
 

@@ -18,6 +18,24 @@ export function createInMemoryTestDb() {
 }
 
 /**
+ * Convenient alias for createInMemoryTestDb.
+ * @returns {Database.Database}
+ */
+export function createTestDb() {
+    return createInMemoryTestDb();
+}
+
+/**
+ * Closes an open database connection safely.
+ * @param {Database.Database} db
+ */
+export function closeTestDb(db) {
+    if (db && db.open) {
+        db.close();
+    }
+}
+
+/**
  * Creates a temporary file-backed SQLite database instance with migrations applied.
  * Essential for testing WAL mode, file durability, and process restart scenarios.
  *

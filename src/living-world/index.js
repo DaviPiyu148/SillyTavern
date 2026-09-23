@@ -81,3 +81,5 @@ export * from './authored/factions.js';
 export * from './authored/scenarios.js';
 export * from './authored/world-rules.js';
 export * from './authored/prompt-configs.js';
+export * from './simulations/simulations.js';
+export * from './simulations/simulation-characters.js';

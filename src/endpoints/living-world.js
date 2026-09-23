@@ -44,6 +44,16 @@ import {
     createPromptConfig,
     getPromptConfig,
     updatePromptConfig,
+    createSimulation,
+    getSimulationByLwsId,
+    listSimulations,
+    updateSimulation,
+    deleteSimulation,
+    addSimulationCharacter,
+    getSimulationCharacterByLwsId,
+    listSimulationCharacters,
+    updateSimulationCharacter,
+    deleteSimulationCharacter,
 } from '../living-world/index.js';
 import { isValidUuid } from '../living-world/authored/common.js';
 
@@ -581,4 +591,129 @@ router.patch('/worlds/:worldLwsId/prompt-config', (req, res) => {
     }
 });
 
+// ====================================================================
+// Simulations & Simulation Characters (Phase 3)
+// ====================================================================
+
+// 1. POST /worlds/:worldLwsId/simulations
+router.post('/worlds/:worldLwsId/simulations', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ worldLwsId: req.params.worldLwsId }, res)) return;
+    try {
+        const simulation = createSimulation(req.params.worldLwsId, req.body ?? {});
+        return res.status(201).json(simulation);
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /worlds/:worldLwsId/simulations');
+    }
+});
+
+// 2. GET /worlds/:worldLwsId/simulations
+router.get('/worlds/:worldLwsId/simulations', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ worldLwsId: req.params.worldLwsId }, res)) return;
+    try {
+        const simulations = listSimulations(req.params.worldLwsId, { status: req.query.status });
+        return res.json(simulations);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /worlds/:worldLwsId/simulations');
+    }
+});
+
+// 3. GET /simulations/:simLwsId
+router.get('/simulations/:simLwsId', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const simulation = getSimulationByLwsId(req.params.simLwsId);
+        return res.json(simulation);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId');
+    }
+});
+
+// 4. PATCH /simulations/:simLwsId
+router.patch('/simulations/:simLwsId', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const simulation = updateSimulation(req.params.simLwsId, req.body ?? {});
+        return res.json(simulation);
+    } catch (err) {
+        return handleRouteError(err, res, 'PATCH /simulations/:simLwsId');
+    }
+});
+
+// 5. DELETE /simulations/:simLwsId
+router.delete('/simulations/:simLwsId', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        deleteSimulation(req.params.simLwsId);
+        return res.status(204).send();
+    } catch (err) {
+        return handleRouteError(err, res, 'DELETE /simulations/:simLwsId');
+    }
+});
+
+// 6. POST /simulations/:simLwsId/characters
+router.post('/simulations/:simLwsId/characters', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const simChar = addSimulationCharacter(req.params.simLwsId, req.body ?? {});
+        return res.status(201).json(simChar);
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/characters');
+    }
+});
+
+// 7. GET /simulations/:simLwsId/characters
+router.get('/simulations/:simLwsId/characters', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const simChars = listSimulationCharacters(req.params.simLwsId);
+        return res.json(simChars);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters');
+    }
+});
+
+// 8. GET /simulations/:simLwsId/characters/:simCharLwsId
+router.get('/simulations/:simLwsId/characters/:simCharLwsId', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, simCharLwsId: req.params.simCharLwsId }, res)) return;
+    try {
+        const simChar = getSimulationCharacterByLwsId(req.params.simLwsId, req.params.simCharLwsId);
+        return res.json(simChar);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:simCharLwsId');
+    }
+});
+
+// 9. PATCH /simulations/:simLwsId/characters/:simCharLwsId
+router.patch('/simulations/:simLwsId/characters/:simCharLwsId', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, simCharLwsId: req.params.simCharLwsId }, res)) return;
+    try {
+        const simChar = updateSimulationCharacter(req.params.simLwsId, req.params.simCharLwsId, req.body ?? {});
+        return res.json(simChar);
+    } catch (err) {
+        return handleRouteError(err, res, 'PATCH /simulations/:simLwsId/characters/:simCharLwsId');
+    }
+});
+
+// 10. DELETE /simulations/:simLwsId/characters/:simCharLwsId
+router.delete('/simulations/:simLwsId/characters/:simCharLwsId', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, simCharLwsId: req.params.simCharLwsId }, res)) return;
+    try {
+        deleteSimulationCharacter(req.params.simLwsId, req.params.simCharLwsId);
+        return res.status(204).send();
+    } catch (err) {
+        return handleRouteError(err, res, 'DELETE /simulations/:simLwsId/characters/:simCharLwsId');
+    }
+});
+
 export { router };
+

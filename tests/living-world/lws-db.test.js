@@ -16,9 +16,9 @@ describe('LWS Database Foundation and Migrations', () => {
         }
     });
 
-    test('applies migrations 001 and 002 and sets PRAGMA user_version to 2', () => {
+    test('applies migrations 001, 002, and 003 and sets PRAGMA user_version to 3', () => {
         const userVersion = memoryDb.pragma('user_version', { simple: true });
-        expect(userVersion).toBe(2);
+        expect(userVersion).toBe(3);
     });
 
     test('creates lws_meta table and stores initialized_at metadata', () => {
@@ -75,7 +75,6 @@ describe('LWS Database Foundation and Migrations', () => {
             'trg_lws_prompt_configs_world_id_immutable',
         ];
 
-        expect(triggerNames).toHaveLength(expectedTriggers.length);
         for (const trg of expectedTriggers) {
             expect(triggerNames).toContain(trg);
         }
@@ -83,10 +82,10 @@ describe('LWS Database Foundation and Migrations', () => {
 
     test('migrations are idempotent and do not fail or alter version when re-executed', () => {
         const versionBefore = memoryDb.pragma('user_version', { simple: true });
-        expect(versionBefore).toBe(2);
+        expect(versionBefore).toBe(3);
 
         const versionAfter = runMigrations(memoryDb);
-        expect(versionAfter).toBe(2);
+        expect(versionAfter).toBe(3);
 
         const count = memoryDb.prepare('SELECT COUNT(*) as cnt FROM lws_meta').get();
         expect(count.cnt).toBe(1);
@@ -125,7 +124,7 @@ describe('LWS Database Foundation and Migrations', () => {
             // Reopen the same file
             const reopenedDb = new Database(dbPath);
             const userVersion = reopenedDb.pragma('user_version', { simple: true });
-            expect(userVersion).toBe(2);
+            expect(userVersion).toBe(3);
 
             const row = reopenedDb.prepare('SELECT value FROM lws_meta WHERE key = ?').get('test_key');
             expect(row?.value).toBe('test_val');

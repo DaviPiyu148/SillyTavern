@@ -227,13 +227,13 @@ describe('Authored Domain Invariants and Persistence Boundary Enforcement', () =
         expect(factionRow).toBeDefined();
     });
 
-    test('no runtime simulation tables exist in Phase 2 schema', () => {
+    test('runtime simulation tables exist while Phase 4 and 5 event/tick tables do not', () => {
         const db = openDb(':memory:');
         const tables = db.prepare('SELECT name FROM sqlite_master WHERE type=\'table\'').all();
         const names = tables.map(t => t.name);
 
-        expect(names).not.toContain('lws_simulations');
-        expect(names).not.toContain('lws_simulation_characters');
+        expect(names).toContain('lws_simulations');
+        expect(names).toContain('lws_simulation_characters');
         expect(names).not.toContain('lws_events');
         expect(names).not.toContain('lws_ticks');
     });

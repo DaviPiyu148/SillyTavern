@@ -30,6 +30,101 @@ Known limitations or implications.
 
 ---
 
+## 2026-09-23 — Phase 3: Simulation Runtime and Persistence
+
+Status: IMPLEMENTED / VERIFIED / ACCEPTED
+
+### Change
+Implemented the simulation runtime and persistence layer for the Living World Simulator (LWS):
+
+1. Created database migration `003_simulation_runtime.js` elevating schema version to `PRAGMA user_version = 3`:
+   - Exactly 2 runtime tables: `lws_simulations` and `lws_simulation_characters`.
+   - Exactly 10 SQLite database triggers:
+     - `trg_lws_simulations_world_id_immutable` (BEFORE UPDATE OF world_id ON lws_simulations)
+     - `trg_lws_simulations_scenario_id_immutable` (BEFORE UPDATE OF scenario_id ON lws_simulations)
+     - `trg_lws_simulations_scenario_same_world_insert` (BEFORE INSERT ON lws_simulations)
+     - `trg_lws_simulations_status_transition` (BEFORE UPDATE OF status ON lws_simulations)
+     - `trg_lws_sim_chars_simulation_id_immutable` (BEFORE UPDATE OF simulation_id ON lws_simulation_characters)
+     - `trg_lws_sim_chars_character_id_immutable` (BEFORE UPDATE OF character_id ON lws_simulation_characters)
+     - `trg_lws_sim_chars_snapshot_immutable` (BEFORE UPDATE OF authored_snapshot ON lws_simulation_characters)
+     - `trg_lws_sim_chars_character_same_world_insert` (BEFORE INSERT ON lws_simulation_characters)
+     - `trg_lws_sim_chars_location_same_world_insert` (BEFORE INSERT ON lws_simulation_characters)
+     - `trg_lws_sim_chars_location_insert` & `trg_lws_sim_chars_location_update` (blocks newly assigning soft-deleted locations while preserving existing references).
+   - Exactly 5 database indexes:
+     - `idx_lws_simulations_world_status` on `lws_simulations(world_id, status)`
+     - `idx_lws_simulations_name_active` (partial unique index on `lws_simulations(world_id, name) WHERE deleted_at IS NULL COLLATE NOCASE`)
+     - `idx_lws_sim_chars_sim_char_active` (partial unique index on `lws_simulation_characters(simulation_id, character_id) WHERE deleted_at IS NULL`)
+     - `idx_lws_sim_chars_sim` on `lws_simulation_characters(simulation_id)`
+     - `idx_lws_sim_chars_location` on `lws_simulation_characters(current_location_id)`
+2. Created simulation domain modules under `src/living-world/simulations/`:
+   - `common.js`: Semantic calendar date validation (`validateFictionalTimestamp`) validating Gregorian leap years, days in month, and 24h clock bounds; status transition matrix validation; and active world/simulation lookups with soft-delete gating.
+   - `simulations.js`: Full simulation lifecycle CRUD, scenario instantiation with atomic roster creation and frozen snapshots, active name uniqueness, status transition enforcement, and soft-deletion (allowed from `active`, `paused`, and `archived`).
+   - `simulation-characters.js`: SimulationCharacter CRUD, runtime state mutations (`current_location_id`, `activity`, `physical_condition`, `runtime_state`), duplicate active character conflict rejection (409), paused/archived mutation protection, soft-deleted location assignment guards, and soft-deletion.
+3. Established Hybrid Runtime Identity & Snapshots (ADR-011):
+   - Runtime instances maintain independent identities and lineages to authored characters without mutating authored tables.
+   - Authored cards are snapshotted immutably into `authored_snapshot` upon instantiation.
+4. Expanded REST API transport in `src/endpoints/living-world.js`:
+   - Added 10 authenticated endpoints for simulation and simulation character operations:
+     - `POST /worlds/:worldLwsId/simulations`
+     - `GET /worlds/:worldLwsId/simulations`
+     - `GET /simulations/:simLwsId`
+     - `PATCH /simulations/:simLwsId`
+     - `DELETE /simulations/:simLwsId`
+     - `POST /simulations/:simLwsId/characters`
+     - `GET /simulations/:simLwsId/characters`
+     - `GET /simulations/:simLwsId/characters/:simCharLwsId`
+     - `PATCH /simulations/:simLwsId/characters/:simCharLwsId`
+     - `DELETE /simulations/:simLwsId/characters/:simCharLwsId`
+   - Scoped with deleted-World and deleted-Simulation gating.
+5. Automated testing and two-simulation isolation proof:
+   - Added 5 new test suites: `lws-simulations-db.test.js`, `lws-simulations.test.js`, `lws-simulation-characters.test.js`, `lws-simulations-isolation.test.js`, and `lws-simulations-api.test.js`.
+   - Updated existing test suites to assert `user_version = 3`.
+   - Verified that two concurrent simulations in the same world progress independently with different locations, activities, and conditions without state collision, and verified that soft-deleting authored cards does not corrupt running simulations.
+
+### Reason
+Fulfill Phase 3 of the LWS roadmap to establish persistent runtime simulations and simulation character instances, strictly separating authored definitions from runtime mutations while providing robust database-level integrity, semantic date validation, and status lifecycle control.
+
+### Files/modules
+- Created:
+  - `src/living-world/migrations/003_simulation_runtime.js`
+  - `src/living-world/simulations/common.js`
+  - `src/living-world/simulations/simulations.js`
+  - `src/living-world/simulations/simulation-characters.js`
+  - `tests/living-world/lws-simulations-db.test.js`
+  - `tests/living-world/lws-simulations.test.js`
+  - `tests/living-world/lws-simulation-characters.test.js`
+  - `tests/living-world/lws-simulations-isolation.test.js`
+  - `tests/living-world/lws-simulations-api.test.js`
+  - `docs/living-world/decisions/ADR-011-hybrid-simulation-runtime-identity-and-snapshots.md`
+- Modified:
+  - `src/living-world/migrations/index.js`
+  - `src/living-world/index.js`
+  - `src/endpoints/living-world.js`
+  - `tests/living-world/fixtures/test-db.js`
+  - `tests/living-world/lws-db.test.js`
+  - `tests/living-world/lws-init.test.js`
+  - `tests/living-world/lws-api.test.js`
+  - `tests/living-world/lws-st-integration.test.js`
+  - `tests/living-world/lws-authored-domain.test.js`
+  - `docs/living-world/PROJECT_STATE.md`
+  - `docs/living-world/PERSISTENCE.md`
+  - `docs/living-world/AI_CHANGELOG.md`
+
+### Architecture
+- Strict enforcement of separation between authored definitions (`lws_characters`, `lws_worlds`, `lws_locations`) and runtime simulation state (`lws_simulations`, `lws_simulation_characters`).
+- Immutability enforced at database trigger boundary for foreign key lineages, originating scenarios, and frozen authored snapshots.
+- Single-point entry and parent soft-delete gating on REST endpoints.
+
+### Tests
+- Unit and integration tests passing: 18/18 LWS suites (132/132 tests).
+- SillyTavern full test suite passing: 37/37 suites (543/543 tests).
+- ESLint checks passing cleanly with 0 errors across root and test directories.
+
+### Notes
+- Event ledgers (`lws_events`) and causal tick management (`lws_ticks`) are explicitly reserved for Phase 4. Fictional time progression engine, scheduled routines, and travel engines are reserved for Phase 5.
+
+---
+
 ## 2026-09-23 — Phase 2: Authored World and Character Model
 
 Status: IMPLEMENTED / VERIFIED / ACCEPTED
