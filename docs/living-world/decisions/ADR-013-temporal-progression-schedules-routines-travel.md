@@ -54,7 +54,7 @@ We adopt an **Authoritative Temporal Progression, Schedules, Routines, and Trave
 
 5. **Scheduled World Events & Reciprocal Supersession**:
    - Persisted in `lws_scheduled_events` (schema version 5) with states `pending`, `triggered`, `cancelled`, and `superseded`.
-   - Trigger `trg_lws_sched_events_reciprocal_supersession` enforces bidirectional supersession consistency at the database engine boundary:
+   - Triggers `trg_lws_sched_events_insert_integrity` and `trg_lws_sched_events_update_integrity` enforce bidirectional supersession consistency at the database engine boundary:
      $$\text{predecessor.superseded\_by\_event\_id} = \text{successor.id} \iff \text{successor.supersedes\_event\_id} = \text{predecessor.id}$$
    - Predecessor status is atomically locked to `superseded`.
 

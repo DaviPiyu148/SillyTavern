@@ -143,19 +143,19 @@ Schema changes require explicit, versioned migrations and verification.
     2. `lws_scheduled_events`: Authored and dynamically scheduled world events (`id`, `lws_id`, `simulation_id`, `scheduled_fictional_time`, `title`, `description`, `target_location_id`, `payload`, `status`, `supersedes_event_id`, `superseded_by_event_id`, `trigger_event_id`, `cancel_event_id`, `created_at`, `updated_at`).
   - Exactly 9 Phase 5 triggers (1 evolved ledger trigger + 4 routine triggers + 4 scheduled-event triggers; 24 cumulative across system):
     1. `trg_lws_events_monotonic_and_sequence`: Replaces `trg_lws_events_fictional_time_matches_sim`, enforcing sequence monotonicity, clock non-retroactivity ($T_{\text{event}} \ge T_{\text{current}}$ for sequence 1 or direct proposals, $T_{\text{event}} \ge T_{\text{prev}}$), and exact unbroken incremental sequence numbers.
-    2. `trg_lws_routines_immutability`: Enforces immutability of `simulation_id` and `simulation_character_id` on routines.
-    3. `trg_lws_routines_integrity`: Validates character simulation membership and active world location existence on routine INSERT/UPDATE.
-    4. `trg_lws_routines_no_delete`: Enforces soft-delete only for routines, prohibiting direct `DELETE`.
-    5. `trg_lws_sched_events_immutability`: Enforces immutability of `simulation_id` on scheduled events.
+    2. `trg_lws_routines_identity_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on routine updates.
+    3. `trg_lws_routines_insert_integrity`: Validates that character belongs to simulation and target location belongs to simulation world and is not soft-deleted on routine insertion.
+    4. `trg_lws_routines_update_location`: Validates that updated target location belongs to simulation world and is not soft-deleted.
+    5. `trg_lws_routines_no_delete`: Enforces soft-delete only for routines, prohibiting direct `DELETE`.
     6. `trg_lws_sched_events_terminal_immutable`: Prevents updates to terminal scheduled events (`triggered`, `cancelled`, `superseded`).
-    7. `trg_lws_sched_events_integrity`: Validates active world location, same-simulation supersession, and trigger/cancel event linkages on INSERT/UPDATE.
-    8. `trg_lws_sched_events_reciprocal_supersession`: Enforces bidirectional supersession locking ($A.\text{superseded\_by} = B \iff B.\text{supersedes} = A$) and status `superseded` at the database boundary.
+    7. `trg_lws_sched_events_insert_integrity`: Validates location, self-supersession, predecessor status (`pending`), reciprocal successor linkage, and trigger/cancel event linkages on insertion.
+    8. `trg_lws_sched_events_update_integrity`: Enforces simulation immutability, location validity, immutable established supersession, reciprocal supersession consistency, and trigger/cancel event linkages on update.
     9. `trg_lws_sched_events_no_delete`: Prohibits direct `DELETE` on scheduled events.
   - Exactly 4 new indexes (11 cumulative across Phase 4 & 5 tables):
     1. `idx_lws_routines_sim_char`: Fast lookup of active routines by simulation character (`lws_simulation_character_routines(simulation_id, simulation_character_id) WHERE deleted_at IS NULL`).
     2. `idx_lws_routines_lookup`: Fast routine lookup by character, day of week, and start time (`lws_simulation_character_routines(simulation_character_id, day_of_week, start_time) WHERE deleted_at IS NULL`).
     3. `idx_lws_sched_events_sim_time`: Fast chronological lookup of pending scheduled events (`lws_scheduled_events(simulation_id, scheduled_fictional_time) WHERE status = 'pending'`).
     4. `idx_lws_sched_events_sim_status`: Filtering of scheduled events by simulation and status (`lws_scheduled_events(simulation_id, status)`).
-  - Cumulative database inventory: 15 tables, 24 triggers, 11 indexes.
+  - Cumulative database inventory: Exactly 16 tables (reconciles the frozen plan Section 14.2 text erratum stating "15 tables (13 from Phases 1–4 + 2 new)", which omitted `lws_meta` or undercounted the 14 verified Phase 1–4 tables; 14 prior tables + 2 Phase 5 tables = 16 total tables), exactly 24 triggers on Phase 4/5 tables, and exactly 11 indexes.
   - Pure in-memory zero-SQL replay engine expanded to reduce and assert 100% attribute parity across all 6 Phase 5 events, character activities, travel runtime states, routines, and scheduled events with zero SQL.
 

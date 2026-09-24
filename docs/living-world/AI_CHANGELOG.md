@@ -41,15 +41,16 @@ Implemented authoritative fictional time progression, character routine arbitrat
    - Exactly 2 new tables: `lws_simulation_character_routines` and `lws_scheduled_events`.
    - Exactly 9 Phase 5 triggers (1 evolved monotonic clock trigger + 4 routine triggers + 4 scheduled-event triggers; 24 cumulative across system):
      1. `trg_lws_events_monotonic_and_sequence`: Replaces `trg_lws_events_fictional_time_matches_sim`, enforcing sequence monotonicity, clock non-retroactivity, and unbroken incremental sequencing.
-     2. `trg_lws_routines_immutability`: Enforces immutability of `simulation_id` and `simulation_character_id`.
-     3. `trg_lws_routines_integrity`: Validates character simulation membership and active world location existence.
-     4. `trg_lws_routines_no_delete`: Enforces soft-delete only for routines.
-     5. `trg_lws_sched_events_immutability`: Enforces immutability of `simulation_id`.
+     2. `trg_lws_routines_identity_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on routine updates.
+     3. `trg_lws_routines_insert_integrity`: Validates character simulation membership and active world location existence on insertion.
+     4. `trg_lws_routines_update_location`: Validates updated target location belongs to simulation world and is not soft-deleted.
+     5. `trg_lws_routines_no_delete`: Enforces soft-delete only for routines.
      6. `trg_lws_sched_events_terminal_immutable`: Freezes terminal events (`triggered`, `cancelled`, `superseded`).
-     7. `trg_lws_sched_events_integrity`: Validates active location, same-simulation supersession, and trigger/cancel event linkages.
-     8. `trg_lws_sched_events_reciprocal_supersession`: Enforces bidirectional supersession locking and status `superseded`.
+     7. `trg_lws_sched_events_insert_integrity`: Validates location, self-supersession, predecessor status (`pending`), reciprocal successor linkage, and trigger/cancel linkages on insertion.
+     8. `trg_lws_sched_events_update_integrity`: Enforces simulation immutability, location validity, immutable established supersession, reciprocal supersession consistency, and trigger/cancel linkages on update.
      9. `trg_lws_sched_events_no_delete`: Prohibits direct `DELETE` on scheduled events.
    - Exactly 4 new indexes: `idx_lws_routines_sim_char`, `idx_lws_routines_lookup`, `idx_lws_sched_events_sim_time` (`WHERE status = 'pending'`), `idx_lws_sched_events_sim_status`.
+   - Cumulative database inventory: Exactly 16 tables (reconciles the Section 14.2 text erratum stating 15), 24 triggers on Phase 4/5 tables, 11 indexes.
 
 2. Activated all 6 Phase 5 event types in the closed 29-event taxonomy:
    - All 29 event types active, 0 deferred, 19 stateful.
