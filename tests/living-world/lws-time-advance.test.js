@@ -11,6 +11,7 @@ import { createCharacter } from '../../src/living-world/authored/characters.js';
 import { createSimulation } from '../../src/living-world/simulations/simulations.js';
 import { addSimulationCharacter } from '../../src/living-world/simulations/simulation-characters.js';
 import { EVENT_TYPES } from '../../src/living-world/events/taxonomy.js';
+import { verifySimulationParity } from '../../src/living-world/events/replay.js';
 
 describe('LWS Phase 5 Time Advance and Timeline Resolution', () => {
     let app;
@@ -133,7 +134,14 @@ describe('LWS Phase 5 Time Advance and Timeline Resolution', () => {
                 activity: 'idle',
             });
 
-            // Alice routines: Monday 09:00 - 12:00 smithing, 12:00 - 13:00 eating, 13:00 - 17:00 smithing
+            const charBob = createCharacter(world.lws_id, { name: 'Bob' });
+            const simBob = addSimulationCharacter(sim.lws_id, {
+                character_id: charBob.lws_id,
+                current_location_id: townSquare.lws_id,
+                activity: 'idle',
+            });
+
+            // Alice routines (Forge worker): Monday 09:00 - 12:00 smithing, 12:00 - 13:00 eating
             await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/characters/${simAlice.lws_id}/routines`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -157,13 +165,23 @@ describe('LWS Phase 5 Time Advance and Timeline Resolution', () => {
                             target_location_id: forge.lws_id,
                             priority: 50,
                         },
+                    ],
+                }),
+            });
+
+            // Bob routines (Market patroller): Monday 11:00 - 15:00 patrolling
+            await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/characters/${simBob.lws_id}/routines`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    routines: [
                         {
-                            block_id: 'afternoon_smith',
+                            block_id: 'market_patrol',
                             day_of_week: 'monday',
-                            start_time: '13:00:00',
-                            end_time: '17:00:00',
-                            activity: 'smithing',
-                            target_location_id: forge.lws_id,
+                            start_time: '11:00:00',
+                            end_time: '15:00:00',
+                            activity: 'patrolling',
+                            target_location_id: townSquare.lws_id,
                             priority: 50,
                         },
                     ],
@@ -183,21 +201,22 @@ describe('LWS Phase 5 Time Advance and Timeline Resolution', () => {
             const advData = await advRes.json();
 
             expect(advData.current_fictional_time).toBe('2026-06-01T16:00:00Z');
-            expect(advData.intermediate_events.length).toBe(3);
 
-            // Assert intermediate events occur at exact boundaries
+            // Assert intermediate events occur at exact boundaries: 09:00, 11:00, 12:00
             const ev09 = advData.intermediate_events.find(e => e.fictional_time === '2026-06-01T09:00:00Z');
             expect(ev09).toBeDefined();
             expect(ev09.event_type).toBe(EVENT_TYPES.UPDATE_CHARACTER_ACTIVITY);
             expect(ev09.payload.activity).toBe('smithing');
 
+            const ev11 = advData.intermediate_events.find(e => e.fictional_time === '2026-06-01T11:00:00Z');
+            expect(ev11).toBeDefined();
+            expect(ev11.event_type).toBe(EVENT_TYPES.UPDATE_CHARACTER_ACTIVITY);
+            expect(ev11.payload.activity).toBe('patrolling');
+
             const ev12 = advData.intermediate_events.find(e => e.fictional_time === '2026-06-01T12:00:00Z');
             expect(ev12).toBeDefined();
+            expect(ev12.event_type).toBe(EVENT_TYPES.UPDATE_CHARACTER_ACTIVITY);
             expect(ev12.payload.activity).toBe('eating');
-
-            const ev13 = advData.intermediate_events.find(e => e.fictional_time === '2026-06-01T13:00:00Z');
-            expect(ev13).toBeDefined();
-            expect(ev13.payload.activity).toBe('smithing');
 
             // Assert root TIME_ADVANCE exists at exactly target time
             expect(advData.root_event).toBeDefined();
@@ -209,6 +228,11 @@ describe('LWS Phase 5 Time Advance and Timeline Resolution', () => {
             for (let i = 1; i < allEvents.length; i++) {
                 expect(allEvents[i].sequence_number).toBe(allEvents[i - 1].sequence_number + 1);
             }
+
+            // Assert pure replay parity is 100%
+            const parity = verifySimulationParity(sim.lws_id);
+            expect(parity.verified).toBe(true);
+            expect(parity.drift_detected).toBe(false);
         });
 
         test('Canonical Proof Scenario 2: Overnight Rollover Across Midnight', async () => {
@@ -267,9 +291,23 @@ describe('LWS Phase 5 Time Advance and Timeline Resolution', () => {
             const db = getDb();
             const charRow = db.prepare('SELECT activity FROM lws_simulation_characters WHERE lws_id = ?').get(simClara.lws_id);
             expect(charRow.activity).toBe('sleeping');
+
+            // Verify pure replay parity is 100%
+            const parity = verifySimulationParity(sim.lws_id);
+            expect(parity.verified).toBe(true);
+            expect(parity.drift_detected).toBe(false);
         });
 
         test('Canonical Proof Scenario 3: Scheduled World Event Execution & Terminal Immutability', async () => {
+            // Fast forward simulation clock to Monday 12:00:00Z to explicitly test the 12:00 -> 16:00 interval
+            await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/time-advance`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    target_fictional_time: '2026-06-01T12:00:00Z',
+                }),
+            });
+
             // Schedule Market Festival for Monday 14:00:00Z
             const schedRes = await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/scheduled-events`, {
                 method: 'POST',
@@ -284,12 +322,13 @@ describe('LWS Phase 5 Time Advance and Timeline Resolution', () => {
             const schedData = await schedRes.json();
             const eventId = schedData.lws_id;
 
-            // Advance from 08:00:00Z to 16:00:00Z
+            // Advance from 12:00:00Z to 16:00:00Z
             const advRes = await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/time-advance`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     target_fictional_time: '2026-06-01T16:00:00Z',
+                    expected_fictional_time: '2026-06-01T12:00:00Z',
                 }),
             });
             expect(advRes.status).toBe(200);
@@ -325,6 +364,11 @@ describe('LWS Phase 5 Time Advance and Timeline Resolution', () => {
                 }),
             });
             expect(supersedeRes.status).toBe(409);
+
+            // Verify pure replay parity is 100%
+            const parity = verifySimulationParity(sim.lws_id);
+            expect(parity.verified).toBe(true);
+            expect(parity.drift_detected).toBe(false);
         });
     });
 });

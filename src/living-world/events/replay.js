@@ -214,7 +214,7 @@ export function verifySimulationParity(simLwsId) {
     const sim = ensureActiveSimulation(db, simLwsId);
 
     // 1. Fetch events from database
-    const events = listEvents(simLwsId, { limit: 100000 });
+    const events = listEvents(simLwsId, { unlimited: true });
 
     // 2. Pure in-memory replay
     const replayed = replaySimulation(events);

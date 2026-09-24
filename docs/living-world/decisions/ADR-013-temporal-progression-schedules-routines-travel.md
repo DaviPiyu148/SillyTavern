@@ -22,7 +22,7 @@ We adopt an **Authoritative Temporal Progression, Schedules, Routines, and Trave
      - In-transit character arrival timestamps ($T_{\text{arr}}$).
    - Temporal events at the same timestamp are deterministically ordered by sub-event priority:
      1. Scheduled event triggers (`TRIGGER_SCHEDULED_EVENT`).
-     2. In-transit arrivals (`RELOCATE_CHARACTER` + `UPDATE_RUNTIME_STATE` + `UPDATE_CHARACTER_ACTIVITY`).
+     2. In-transit arrivals (`MOVE_CHARACTER` + `UPDATE_RUNTIME_STATE` + `UPDATE_CHARACTER_ACTIVITY`).
      3. Routine activity changes & travel departures (`UPDATE_RUNTIME_STATE` + `UPDATE_CHARACTER_ACTIVITY`).
    - Tie-breaking within the same sub-event type is deterministically ordered by entity ID (`lws_id`).
    - Zero-duration advance ($T_{\text{target}} = T_{\text{start}}$) is idempotent, generating zero consequence events and zero ledger mutations.
@@ -46,10 +46,10 @@ We adopt an **Authoritative Temporal Progression, Schedules, Routines, and Trave
 
 4. **Spatial Travel & Lifecycle Mechanics**:
    - Spatial distance between locations is computed via hierarchical tree Lowest Common Ancestor (LCA) distance ($d = \text{depth}(A) + \text{depth}(B) - 2 \cdot \text{depth}(\text{LCA})$) with authored connection overrides.
-   - Travel duration is $d \times \text{speed\_multiplier}$; planned departure time is $T_{\text{dep}} = T_{\text{start}} - \text{duration}$.
+   - Travel duration is computed via hierarchical tree distance (adjacent: 300s, cross-district: $d \times 600\text{s}$) or authored connection override; planned departure time is $T_{\text{dep}} = T_{\text{start}} - \text{duration}$.
    - Complete travel lifecycle:
      - Departure: `UPDATE_RUNTIME_STATE` (`status: 'in_transit'`) + `UPDATE_CHARACTER_ACTIVITY` (`activity: 'travelling'`).
-     - Arrival: `RELOCATE_CHARACTER` + `UPDATE_RUNTIME_STATE` (`travel: null`) + `UPDATE_CHARACTER_ACTIVITY` (routine activity).
+     - Arrival: `MOVE_CHARACTER` + `UPDATE_RUNTIME_STATE` (`travel: null`) + `UPDATE_CHARACTER_ACTIVITY` (routine activity).
    - Travel suspension occurs if a severe physical condition intervenes, retaining remaining travel duration. Travel resumes upon condition clearance if the destination routine remains valid.
 
 5. **Scheduled World Events & Reciprocal Supersession**:

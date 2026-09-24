@@ -138,8 +138,12 @@ describe('LWS Phase 5 Pure Replay & Deep Parity Verification', () => {
         let world;
         let plaza;
         let market;
+        let tavern;
         let sim;
         let simBob;
+        let simAlice;
+        let simCharlie;
+        let simDiana;
         let tempDir;
 
         beforeEach(async () => {
@@ -168,6 +172,15 @@ describe('LWS Phase 5 Pure Replay & Deep Parity Verification', () => {
                     },
                 },
             });
+            tavern = createLocation(world.lws_id, {
+                name: 'Tavern',
+                extensions: {
+                    connections: {
+                        [plaza.lws_id]: { duration_seconds: 300 },
+                        [market.lws_id]: { duration_seconds: 300 },
+                    },
+                },
+            });
 
             sim = createSimulation(world.lws_id, {
                 name: 'Sim Replay',
@@ -177,6 +190,27 @@ describe('LWS Phase 5 Pure Replay & Deep Parity Verification', () => {
             const charBob = createCharacter(world.lws_id, { name: 'Bob' });
             simBob = addSimulationCharacter(sim.lws_id, {
                 character_id: charBob.lws_id,
+                current_location_id: plaza.lws_id,
+                activity: 'idle',
+            });
+
+            const charAlice = createCharacter(world.lws_id, { name: 'Alice' });
+            simAlice = addSimulationCharacter(sim.lws_id, {
+                character_id: charAlice.lws_id,
+                current_location_id: tavern.lws_id,
+                activity: 'idle',
+            });
+
+            const charCharlie = createCharacter(world.lws_id, { name: 'Charlie' });
+            simCharlie = addSimulationCharacter(sim.lws_id, {
+                character_id: charCharlie.lws_id,
+                current_location_id: market.lws_id,
+                activity: 'idle',
+            });
+
+            const charDiana = createCharacter(world.lws_id, { name: 'Diana' });
+            simDiana = addSimulationCharacter(sim.lws_id, {
+                character_id: charDiana.lws_id,
                 current_location_id: plaza.lws_id,
                 activity: 'idle',
             });
@@ -193,29 +227,137 @@ describe('LWS Phase 5 Pure Replay & Deep Parity Verification', () => {
         });
 
         test('replays multi-day progression with 100% attribute parity via verifySimulationParity and POST /replay-verify', async () => {
-            // 1. Assign Daily Routines to Bob:
-            // 09:00 - 12:00 patrolling Plaza
-            // 13:00 - 17:00 guarding Market (requires travel: 300s duration, departs at 12:55)
+            // 1. Assign Daily Routines to Bob (4 blocks across Plaza, Market, Tavern)
             await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/characters/${simBob.lws_id}/routines`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     routines: [
                         {
-                            block_id: 'plaza_patrol',
+                            block_id: 'bob_patrol_plaza',
                             day_of_week: 'daily',
-                            start_time: '09:00:00',
-                            end_time: '12:00:00',
+                            start_time: '08:30:00',
+                            end_time: '11:00:00',
                             activity: 'patrolling',
                             target_location_id: plaza.lws_id,
                             priority: 50,
                         },
                         {
-                            block_id: 'market_guard',
+                            block_id: 'bob_shop_market',
                             day_of_week: 'daily',
-                            start_time: '13:00:00',
-                            end_time: '17:00:00',
+                            start_time: '11:30:00',
+                            end_time: '14:00:00',
+                            activity: 'shopping',
+                            target_location_id: market.lws_id,
+                            priority: 50,
+                        },
+                        {
+                            block_id: 'bob_eat_tavern',
+                            day_of_week: 'daily',
+                            start_time: '14:30:00',
+                            end_time: '18:00:00',
+                            activity: 'eating',
+                            target_location_id: tavern.lws_id,
+                            priority: 50,
+                        },
+                        {
+                            block_id: 'bob_guard_plaza',
+                            day_of_week: 'daily',
+                            start_time: '18:30:00',
+                            end_time: '22:00:00',
                             activity: 'guarding',
+                            target_location_id: plaza.lws_id,
+                            priority: 50,
+                        },
+                    ],
+                }),
+            });
+
+            // 2. Assign Daily Routines to Alice
+            await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/characters/${simAlice.lws_id}/routines`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    routines: [
+                        {
+                            block_id: 'alice_clean_tavern',
+                            day_of_week: 'daily',
+                            start_time: '08:00:00',
+                            end_time: '11:00:00',
+                            activity: 'cleaning',
+                            target_location_id: tavern.lws_id,
+                            priority: 50,
+                        },
+                        {
+                            block_id: 'alice_trade_plaza',
+                            day_of_week: 'daily',
+                            start_time: '11:30:00',
+                            end_time: '14:30:00',
+                            activity: 'trading',
+                            target_location_id: plaza.lws_id,
+                            priority: 50,
+                        },
+                        {
+                            block_id: 'alice_sell_market',
+                            day_of_week: 'daily',
+                            start_time: '15:00:00',
+                            end_time: '18:30:00',
+                            activity: 'selling',
+                            target_location_id: market.lws_id,
+                            priority: 50,
+                        },
+                        {
+                            block_id: 'alice_rest_tavern',
+                            day_of_week: 'daily',
+                            start_time: '19:00:00',
+                            end_time: '23:00:00',
+                            activity: 'resting',
+                            target_location_id: tavern.lws_id,
+                            priority: 50,
+                        },
+                    ],
+                }),
+            });
+
+            // 3. Assign Daily Routines to Charlie
+            await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/characters/${simCharlie.lws_id}/routines`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    routines: [
+                        {
+                            block_id: 'charlie_craft_market',
+                            day_of_week: 'daily',
+                            start_time: '09:00:00',
+                            end_time: '12:00:00',
+                            activity: 'crafting',
+                            target_location_id: market.lws_id,
+                            priority: 50,
+                        },
+                        {
+                            block_id: 'charlie_lunch_tavern',
+                            day_of_week: 'daily',
+                            start_time: '12:30:00',
+                            end_time: '15:00:00',
+                            activity: 'eating',
+                            target_location_id: tavern.lws_id,
+                            priority: 50,
+                        },
+                        {
+                            block_id: 'charlie_social_plaza',
+                            day_of_week: 'daily',
+                            start_time: '15:30:00',
+                            end_time: '19:00:00',
+                            activity: 'socializing',
+                            target_location_id: plaza.lws_id,
+                            priority: 50,
+                        },
+                        {
+                            block_id: 'charlie_sleep_market',
+                            day_of_week: 'daily',
+                            start_time: '19:30:00',
+                            end_time: '23:30:00',
+                            activity: 'sleeping',
                             target_location_id: market.lws_id,
                             priority: 50,
                         },
@@ -223,8 +365,54 @@ describe('LWS Phase 5 Pure Replay & Deep Parity Verification', () => {
                 }),
             });
 
-            // 2. Schedule World Event on Day 1
-            const schedRes = await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/scheduled-events`, {
+            // 4. Assign Daily Routines to Diana
+            await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/characters/${simDiana.lws_id}/routines`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    routines: [
+                        {
+                            block_id: 'diana_exercise_plaza',
+                            day_of_week: 'daily',
+                            start_time: '07:30:00',
+                            end_time: '10:30:00',
+                            activity: 'exercising',
+                            target_location_id: plaza.lws_id,
+                            priority: 50,
+                        },
+                        {
+                            block_id: 'diana_inspect_market',
+                            day_of_week: 'daily',
+                            start_time: '11:00:00',
+                            end_time: '14:00:00',
+                            activity: 'inspecting',
+                            target_location_id: market.lws_id,
+                            priority: 50,
+                        },
+                        {
+                            block_id: 'diana_dine_tavern',
+                            day_of_week: 'daily',
+                            start_time: '14:30:00',
+                            end_time: '17:30:00',
+                            activity: 'dining',
+                            target_location_id: tavern.lws_id,
+                            priority: 50,
+                        },
+                        {
+                            block_id: 'diana_watch_plaza',
+                            day_of_week: 'daily',
+                            start_time: '18:00:00',
+                            end_time: '22:30:00',
+                            activity: 'guarding',
+                            target_location_id: plaza.lws_id,
+                            priority: 50,
+                        },
+                    ],
+                }),
+            });
+
+            // 5. Day 1: Schedule World Event and advance through Day 1 (to Day 2 08:00:00Z)
+            const sched1Res = await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/scheduled-events`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -233,19 +421,18 @@ describe('LWS Phase 5 Pure Replay & Deep Parity Verification', () => {
                     target_location_id: plaza.lws_id,
                 }),
             });
-            const sched1 = await schedRes.json();
+            const sched1 = await sched1Res.json();
             expect(sched1.lws_id).toBeDefined();
 
-            // 3. Advance across Day 1 to 20:00:00Z (event triggers, routines run, travel executes)
             await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/time-advance`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    target_fictional_time: '2026-06-01T20:00:00Z',
+                    target_fictional_time: '2026-06-02T08:00:00Z',
                 }),
             });
 
-            // 4. Schedule and Supersede Event on Day 2
+            // 6. Day 2: Schedule and Supersede Event, advance through Day 2 (to Day 3 08:00:00Z)
             const sched2Res = await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/scheduled-events`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -267,23 +454,57 @@ describe('LWS Phase 5 Pure Replay & Deep Parity Verification', () => {
                 }),
             });
 
-            // 5. Advance across Day 2 and Day 3 to 2026-06-03T18:00:00Z
             await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/time-advance`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    target_fictional_time: '2026-06-03T18:00:00Z',
+                    target_fictional_time: '2026-06-03T08:00:00Z',
                 }),
             });
 
-            // 6. Direct In-Memory Parity Verification
+            // 7. Day 3: Schedule tournament and cancelled event, advance through Day 3 (to Day 4 08:00:00Z - 72h total)
+            await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/scheduled-events`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: 'Day 3 Tournament',
+                    scheduled_fictional_time: '2026-06-03T16:00:00Z',
+                    target_location_id: plaza.lws_id,
+                }),
+            });
+
+            const cancelEvRes = await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/scheduled-events`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: 'Day 3 Outdoor Concert',
+                    scheduled_fictional_time: '2026-06-03T19:00:00Z',
+                    target_location_id: plaza.lws_id,
+                }),
+            });
+            const cancelEv = await cancelEvRes.json();
+            await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/scheduled-events/${cancelEv.lws_id}/cancel`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason: 'inclement weather' }),
+            });
+
+            await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/time-advance`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    target_fictional_time: '2026-06-04T08:00:00Z',
+                }),
+            });
+
+            // 8. Direct In-Memory Parity Verification across all 3 simulated days (100+ events)
             const parityResult = verifySimulationParity(sim.lws_id);
             expect(parityResult.verified).toBe(true);
             expect(parityResult.drift_detected).toBe(false);
-            expect(parityResult.event_count).toBeGreaterThan(15);
-            expect(parityResult.scheduled_event_count).toBeGreaterThanOrEqual(3);
+            expect(parityResult.event_count).toBeGreaterThanOrEqual(100);
+            expect(parityResult.scheduled_event_count).toBeGreaterThanOrEqual(4);
 
-            // 7. REST API Parity Verification Endpoint (POST /replay-verify)
+            // 9. REST API Parity Verification Endpoint (POST /replay-verify)
             const apiVerifyRes = await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/replay-verify`, {
                 method: 'POST',
             });
@@ -292,6 +513,7 @@ describe('LWS Phase 5 Pure Replay & Deep Parity Verification', () => {
             expect(apiData.verified).toBe(true);
             expect(apiData.drift_detected).toBe(false);
             expect(apiData.event_count).toBe(parityResult.event_count);
+            expect(apiData.event_count).toBeGreaterThanOrEqual(100);
         });
     });
 });

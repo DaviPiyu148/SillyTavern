@@ -310,9 +310,6 @@ export function listEvents(simLwsId, options = {}) {
     const db = getDb();
     const sim = ensureActiveSimulation(db, simLwsId);
 
-    const limit = Math.max(1, Math.min(200, Number(options.limit) || 50));
-    const offset = Math.max(0, Number(options.offset) || 0);
-
     let sql = `
         SELECT e.*,
                sim.lws_id AS simulation_lws_id,
@@ -350,8 +347,14 @@ export function listEvents(simLwsId, options = {}) {
         params.push(options.actor_character_id);
     }
 
-    sql += ' ORDER BY e.sequence_number ASC LIMIT ? OFFSET ?';
-    params.push(limit, offset);
+    if (options.unlimited === true) {
+        sql += ' ORDER BY e.sequence_number ASC';
+    } else {
+        const limit = Math.max(1, Math.min(200, Number(options.limit) || 50));
+        const offset = Math.max(0, Number(options.offset) || 0);
+        sql += ' ORDER BY e.sequence_number ASC LIMIT ? OFFSET ?';
+        params.push(limit, offset);
+    }
 
     const rows = db.prepare(sql).all(...params);
     return rows.map(formatEvent);

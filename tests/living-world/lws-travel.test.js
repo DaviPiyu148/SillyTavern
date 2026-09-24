@@ -19,6 +19,7 @@ import { createSimulation } from '../../src/living-world/simulations/simulations
 import { addSimulationCharacter } from '../../src/living-world/simulations/simulation-characters.js';
 import { internalCommitEvent } from '../../src/living-world/events/events.js';
 import { EVENT_TYPES } from '../../src/living-world/events/taxonomy.js';
+import { verifySimulationParity } from '../../src/living-world/events/replay.js';
 
 describe('LWS Phase 5 Travel, Pathfinding, and Interruption', () => {
     describe('Tree Distance and Travel Duration Math', () => {
@@ -244,6 +245,11 @@ describe('LWS Phase 5 Travel, Pathfinding, and Interruption', () => {
             expect(charRow.activity).toBe('guarding');
             const runtimeState = JSON.parse(charRow.runtime_state);
             expect(runtimeState.travel).toBeNull();
+
+            // Verify pure replay parity is 100%
+            const parity = verifySimulationParity(sim.lws_id);
+            expect(parity.verified).toBe(true);
+            expect(parity.drift_detected).toBe(false);
         });
 
         test('travel interruption suspends travel on severe physical condition', async () => {
