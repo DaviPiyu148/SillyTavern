@@ -99,7 +99,7 @@ export function up(db) {
         -- ====================================================================
 
         -- Routine Trigger 1: Routine identity immutable (simulation_id and character ownership)
-        CREATE TRIGGER IF NOT EXISTS trg_lws_routines_identity_immutable
+        CREATE TRIGGER IF NOT EXISTS trg_lws_routines_sim_immutable
         BEFORE UPDATE ON lws_simulation_character_routines
         BEGIN
             SELECT RAISE(ABORT, 'simulation_id is immutable on lws_simulation_character_routines')
@@ -110,7 +110,7 @@ export function up(db) {
         END;
 
         -- Routine Trigger 2: Insert integrity (character same simulation, location same world & not deleted)
-        CREATE TRIGGER IF NOT EXISTS trg_lws_routines_insert_integrity
+        CREATE TRIGGER IF NOT EXISTS trg_lws_routines_char_same_sim
         BEFORE INSERT ON lws_simulation_character_routines
         BEGIN
             SELECT RAISE(ABORT, 'character must belong to the same simulation as the routine')
@@ -123,7 +123,7 @@ export function up(db) {
         END;
 
         -- Routine Trigger 3: Location update integrity (same world and not soft-deleted)
-        CREATE TRIGGER IF NOT EXISTS trg_lws_routines_update_location
+        CREATE TRIGGER IF NOT EXISTS trg_lws_routines_same_world_loc
         BEFORE UPDATE OF target_location_id ON lws_simulation_character_routines
         WHEN NEW.target_location_id IS NOT NULL
         BEGIN
@@ -152,7 +152,7 @@ export function up(db) {
         END;
 
         -- Scheduled Event Trigger 2: Insert integrity (location, reciprocal supersession, trigger/cancel)
-        CREATE TRIGGER IF NOT EXISTS trg_lws_sched_events_insert_integrity
+        CREATE TRIGGER IF NOT EXISTS trg_lws_sched_events_sim_immutable
         BEFORE INSERT ON lws_scheduled_events
         BEGIN
             -- Location guard
@@ -206,7 +206,7 @@ export function up(db) {
         END;
 
         -- Scheduled Event Trigger 3: Update integrity (sim immutable, location, self-supersession, revalidation, reciprocal check, events)
-        CREATE TRIGGER IF NOT EXISTS trg_lws_sched_events_update_integrity
+        CREATE TRIGGER IF NOT EXISTS trg_lws_sched_events_integrity
         BEFORE UPDATE ON lws_scheduled_events
         BEGIN
             -- Simulation ID immutable

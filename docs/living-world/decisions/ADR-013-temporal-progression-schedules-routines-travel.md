@@ -36,12 +36,12 @@ We adopt an **Authoritative Temporal Progression, Schedules, Routines, and Trave
 3. **Character Routines & 6-Tier Activity Arbitration**:
    - Authored routines are persisted in `lws_simulation_character_routines` (schema version 5).
    - Character activity is deterministically arbitrated via a 6-tier hierarchy:
-     1. **Tier 1 (Severe Physical Condition)**: Incapacitated or unconscious state suspends active routines and travel, forcing activity to condition name.
-     2. **Tier 2 (Manual Override / Active Conversation)**: Manual activity override or active dialogue locks character activity.
-     3. **Tier 3 (In-Transit Travel)**: Active travel enforces `travelling` activity until arrival.
-     4. **Tier 4 (Specific Day Routine)**: Highest priority routine explicitly matching the day of the week.
-     5. **Tier 5 (Daily Routine)**: Highest priority routine configured for `daily` recurrence.
-     6. **Tier 6 (Default Idle)**: `idle` at current location when no routine blocks match.
+     1. **Tier 1 (DIRECTOR_OVERRIDE)**: Explicit Director or player manual override locks character activity.
+     2. **Tier 2 (INTERRUPTED)**: Severe physical condition (incapacitated, unconscious, etc.) suspends active routines and travel, forcing activity to condition name.
+     3. **Tier 3 (GOAL_PURSUIT)**: Autonomous goal pursuit (reserved for Phase 7).
+     4. **Tier 4 (TRAVEL)**: Active travel in transit enforces `travelling` activity until arrival.
+     5. **Tier 5 (ROUTINE)**: Highest priority routine explicitly matching the timestamp (with day-of-week specificity tie-breaking).
+     6. **Tier 6 (IDLE)**: Default fallback `idle` at current location when no routine blocks match.
    - Routines support 24-hour time formats, overnight wrapping ($T_{\text{start}} > T_{\text{end}}$), and routine resurrection upon `PUT` (preserving stable entity identity).
 
 4. **Spatial Travel & Lifecycle Mechanics**:
@@ -54,7 +54,7 @@ We adopt an **Authoritative Temporal Progression, Schedules, Routines, and Trave
 
 5. **Scheduled World Events & Reciprocal Supersession**:
    - Persisted in `lws_scheduled_events` (schema version 5) with states `pending`, `triggered`, `cancelled`, and `superseded`.
-   - Triggers `trg_lws_sched_events_insert_integrity` and `trg_lws_sched_events_update_integrity` enforce bidirectional supersession consistency at the database engine boundary:
+   - Triggers `trg_lws_sched_events_sim_immutable` and `trg_lws_sched_events_integrity` enforce bidirectional supersession consistency at the database engine boundary:
      $$\text{predecessor.superseded\_by\_event\_id} = \text{successor.id} \iff \text{successor.supersedes\_event\_id} = \text{predecessor.id}$$
    - Predecessor status is atomically locked to `superseded`.
 

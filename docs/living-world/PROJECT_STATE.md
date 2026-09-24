@@ -184,13 +184,13 @@ Phase 5 delivers fictional time progression, character routine arbitration, spat
 - **Database Boundary Hardening (Cumulative 24 Triggers)**:
   - 9 Phase 5 trigger objects:
     1. `trg_lws_events_monotonic_and_sequence`: Enforces sequence monotonicity, clock non-retroactivity, and unbroken sequences on `lws_events`.
-    2. `trg_lws_routines_identity_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on routine updates.
-    3. `trg_lws_routines_insert_integrity`: Validates character simulation membership and active world location existence on insertion.
-    4. `trg_lws_routines_update_location`: Validates that updated target location belongs to simulation world and is not soft-deleted.
+    2. `trg_lws_routines_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on routine updates.
+    3. `trg_lws_routines_char_same_sim`: Validates character simulation membership and active world location existence on insertion.
+    4. `trg_lws_routines_same_world_loc`: Validates that updated target location belongs to simulation world and is not soft-deleted.
     5. `trg_lws_routines_no_delete`: Enforces soft-delete only for routines.
-    6. `trg_lws_sched_events_terminal_immutable`: Freezes terminal events (`triggered`, `cancelled`, `superseded`).
-    7. `trg_lws_sched_events_insert_integrity`: Validates location, self-supersession, predecessor status (`pending`), reciprocal successor linkage, and trigger/cancel linkages on insertion.
-    8. `trg_lws_sched_events_update_integrity`: Enforces simulation immutability, location validity, immutable established supersession, reciprocal supersession consistency, and trigger/cancel linkages on update.
+    6. `trg_lws_sched_events_sim_immutable`: Validates location, self-supersession, predecessor status (`pending`), reciprocal successor linkage, and trigger/cancel linkages on insertion.
+    7. `trg_lws_sched_events_terminal_immutable`: Freezes terminal events (`triggered`, `cancelled`, `superseded`).
+    8. `trg_lws_sched_events_integrity`: Enforces simulation immutability, location validity, immutable established supersession, reciprocal supersession consistency, and trigger/cancel linkages on update.
     9. `trg_lws_sched_events_no_delete`: Prohibits direct `DELETE` on scheduled events.
 - **Indexes (Cumulative 11 Indexes)**:
   - 4 Phase 5 indexes: `idx_lws_routines_sim_char`, `idx_lws_routines_lookup`, `idx_lws_sched_events_sim_time` (`WHERE status = 'pending'`), `idx_lws_sched_events_sim_status`.
@@ -203,9 +203,9 @@ Phase 5 delivers fictional time progression, character routine arbitration, spat
   - `POST /simulations/:simLwsId/time-advance` gathers scheduled event triggers, planned routine travel departures ($T_{\text{dep}} = T_{\text{start}} - \text{duration}$), and in-transit arrivals in $(T_{\text{start}}, T_{\text{target}}]$.
   - Deterministic sub-event sequence ordering: $(T_{\text{point}} \text{ asc}, \text{sub-event priority asc}, \text{entity\_id asc})$.
   - Zero-duration advance idempotence ($T_{\text{start}} = T_{\text{target}}$ generates 0 consequence events and 0 ledger mutations).
-- **6-Tier Routine Arbitration & Severe Condition Suspension**:
-  - Severe physical condition (Tier 1) suspends travel and routines.
-  - Recovers travel upon condition resolution if destination routine remains active.
+- **Six-Tier Routine Arbitration & Severe Condition Suspension**:
+  - Deterministic activity arbitration across 6 tiers: Tier 1 `DIRECTOR_OVERRIDE`, Tier 2 `INTERRUPTED` (severe physical condition), Tier 3 `GOAL_PURSUIT` (reserved Phase 7), Tier 4 `TRAVEL` (in-transit), Tier 5 `ROUTINE` (matching schedule block), Tier 6 `IDLE` (fallback).
+  - Severe physical condition (Tier 2) suspends travel and routines; recovers travel upon condition resolution if destination routine remains active.
 - **Tree LCA Spatial Travel**:
   - Hierarchical tree LCA distance calculation with connection override lookups.
   - Complete travel lifecycle with planned departures, in-transit runtime tracking, and arrival relocations.
