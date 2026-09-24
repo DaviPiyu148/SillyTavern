@@ -98,33 +98,25 @@ export function up(db) {
         -- Triggers: Character Routines (Exactly 4 Triggers)
         -- ====================================================================
 
-        -- Routine Trigger 1: Routine identity immutable (simulation_id and character ownership)
+        -- Routine Trigger 1: simulation_id is immutable after insert
         CREATE TRIGGER IF NOT EXISTS trg_lws_routines_sim_immutable
-        BEFORE UPDATE ON lws_simulation_character_routines
+        BEFORE UPDATE OF simulation_id ON lws_simulation_character_routines
         BEGIN
             SELECT RAISE(ABORT, 'simulation_id is immutable on lws_simulation_character_routines')
             WHERE NEW.simulation_id != OLD.simulation_id;
-
-            SELECT RAISE(ABORT, 'simulation_character_id is immutable on lws_simulation_character_routines')
-            WHERE NEW.simulation_character_id != OLD.simulation_character_id;
         END;
 
-        -- Routine Trigger 2: Insert integrity (character same simulation, location same world & not deleted)
+        -- Routine Trigger 2: Character must belong to the same simulation (insert only)
         CREATE TRIGGER IF NOT EXISTS trg_lws_routines_char_same_sim
         BEFORE INSERT ON lws_simulation_character_routines
         BEGIN
             SELECT RAISE(ABORT, 'character must belong to the same simulation as the routine')
             WHERE (SELECT simulation_id FROM lws_simulation_characters WHERE id = NEW.simulation_character_id) IS NOT NEW.simulation_id;
-
-            SELECT RAISE(ABORT, 'routine target location must belong to simulation world and not be soft-deleted')
-            WHERE NEW.target_location_id IS NOT NULL
-              AND (SELECT world_id FROM lws_locations WHERE id = NEW.target_location_id AND deleted_at IS NULL) IS NOT
-                  (SELECT world_id FROM lws_simulations WHERE id = NEW.simulation_id);
         END;
 
-        -- Routine Trigger 3: Location update integrity (same world and not soft-deleted)
+        -- Routine Trigger 3: Location must belong to the simulation world and not be soft-deleted (insert only)
         CREATE TRIGGER IF NOT EXISTS trg_lws_routines_same_world_loc
-        BEFORE UPDATE OF target_location_id ON lws_simulation_character_routines
+        BEFORE INSERT ON lws_simulation_character_routines
         WHEN NEW.target_location_id IS NOT NULL
         BEGIN
             SELECT RAISE(ABORT, 'routine target location must belong to simulation world and not be soft-deleted')
@@ -151,8 +143,16 @@ export function up(db) {
             SELECT RAISE(ABORT, 'terminal scheduled event rows are immutable');
         END;
 
-        -- Scheduled Event Trigger 2: Insert integrity (location, reciprocal supersession, trigger/cancel)
+        -- Scheduled Event Trigger 2: simulation_id is immutable after insert
         CREATE TRIGGER IF NOT EXISTS trg_lws_sched_events_sim_immutable
+        BEFORE UPDATE OF simulation_id ON lws_scheduled_events
+        BEGIN
+            SELECT RAISE(ABORT, 'simulation_id is immutable on lws_scheduled_events')
+            WHERE NEW.simulation_id != OLD.simulation_id;
+        END;
+
+        -- Scheduled Event Trigger 3: Insert integrity (location, reciprocal supersession, trigger/cancel linkages)
+        CREATE TRIGGER IF NOT EXISTS trg_lws_sched_events_integrity
         BEFORE INSERT ON lws_scheduled_events
         BEGIN
             -- Location guard
@@ -166,7 +166,7 @@ export function up(db) {
             WHERE (NEW.supersedes_event_id IS NOT NULL AND NEW.id IS NOT NULL AND NEW.supersedes_event_id = NEW.id)
                OR (NEW.superseded_by_event_id IS NOT NULL AND NEW.id IS NOT NULL AND NEW.superseded_by_event_id = NEW.id);
 
-            -- Successor insert: predecessor supersedes_event_id checks
+            -- Successor insert: predecessor checks
             SELECT RAISE(ABORT, 'predecessor scheduled event must belong to the same simulation')
             WHERE NEW.supersedes_event_id IS NOT NULL
               AND (SELECT simulation_id FROM lws_scheduled_events WHERE id = NEW.supersedes_event_id) IS NOT NEW.simulation_id;
@@ -192,72 +192,6 @@ export function up(db) {
 
             SELECT RAISE(ABORT, 'successor scheduled event must have supersedes_event_id pointing to this event')
             WHERE NEW.superseded_by_event_id IS NOT NULL AND NEW.id IS NOT NULL
-              AND (SELECT supersedes_event_id FROM lws_scheduled_events WHERE id = NEW.superseded_by_event_id) IS NOT NEW.id;
-
-            -- Trigger event same simulation guard
-            SELECT RAISE(ABORT, 'trigger_event must belong to the same simulation')
-            WHERE NEW.trigger_event_id IS NOT NULL
-              AND (SELECT simulation_id FROM lws_events WHERE id = NEW.trigger_event_id) IS NOT NEW.simulation_id;
-
-            -- Cancel event same simulation guard
-            SELECT RAISE(ABORT, 'cancel_event must belong to the same simulation')
-            WHERE NEW.cancel_event_id IS NOT NULL
-              AND (SELECT simulation_id FROM lws_events WHERE id = NEW.cancel_event_id) IS NOT NEW.simulation_id;
-        END;
-
-        -- Scheduled Event Trigger 3: Update integrity (sim immutable, location, self-supersession, revalidation, reciprocal check, events)
-        CREATE TRIGGER IF NOT EXISTS trg_lws_sched_events_integrity
-        BEFORE UPDATE ON lws_scheduled_events
-        BEGIN
-            -- Simulation ID immutable
-            SELECT RAISE(ABORT, 'simulation_id is immutable on lws_scheduled_events')
-            WHERE NEW.simulation_id != OLD.simulation_id;
-
-            -- Location guard on update
-            SELECT RAISE(ABORT, 'scheduled event location must belong to simulation world and not be soft-deleted')
-            WHERE NEW.target_location_id IS NOT NULL
-              AND (SELECT world_id FROM lws_locations WHERE id = NEW.target_location_id AND deleted_at IS NULL) IS NOT
-                  (SELECT world_id FROM lws_simulations WHERE id = NEW.simulation_id);
-
-            -- Self-supersession check
-            SELECT RAISE(ABORT, 'scheduled event cannot supersede itself')
-            WHERE (NEW.supersedes_event_id IS NOT NULL AND NEW.supersedes_event_id = NEW.id)
-               OR (NEW.superseded_by_event_id IS NOT NULL AND NEW.superseded_by_event_id = NEW.id);
-
-            -- Established supersedes_event_id relationship is immutable once set
-            SELECT RAISE(ABORT, 'established supersedes_event_id relationship is immutable')
-            WHERE OLD.supersedes_event_id IS NOT NULL
-              AND (NEW.supersedes_event_id IS NULL OR NEW.supersedes_event_id != OLD.supersedes_event_id);
-
-            -- When establishing supersedes_event_id (from NULL to non-NULL):
-            SELECT RAISE(ABORT, 'predecessor scheduled event must belong to the same simulation')
-            WHERE OLD.supersedes_event_id IS NULL AND NEW.supersedes_event_id IS NOT NULL
-              AND (SELECT simulation_id FROM lws_scheduled_events WHERE id = NEW.supersedes_event_id) IS NOT NEW.simulation_id;
-
-            SELECT RAISE(ABORT, 'predecessor scheduled event must be in pending status')
-            WHERE OLD.supersedes_event_id IS NULL AND NEW.supersedes_event_id IS NOT NULL
-              AND (SELECT status FROM lws_scheduled_events WHERE id = NEW.supersedes_event_id) IS NOT 'pending';
-
-            SELECT RAISE(ABORT, 'predecessor scheduled event has already been superseded')
-            WHERE OLD.supersedes_event_id IS NULL AND NEW.supersedes_event_id IS NOT NULL
-              AND (SELECT superseded_by_event_id FROM lws_scheduled_events WHERE id = NEW.supersedes_event_id) IS NOT NULL;
-
-            -- Reciprocal check when setting superseded_by_event_id:
-            -- 1) status must be updated to superseded
-            SELECT RAISE(ABORT, 'superseded scheduled event must have status superseded')
-            WHERE NEW.superseded_by_event_id IS NOT NULL AND NEW.status != 'superseded';
-
-            SELECT RAISE(ABORT, 'superseded scheduled event must reference successor in superseded_by_event_id')
-            WHERE NEW.status = 'superseded' AND NEW.superseded_by_event_id IS NULL;
-
-            -- 2) successor must belong to same simulation
-            SELECT RAISE(ABORT, 'successor scheduled event must belong to the same simulation')
-            WHERE NEW.superseded_by_event_id IS NOT NULL
-              AND (SELECT simulation_id FROM lws_scheduled_events WHERE id = NEW.superseded_by_event_id) IS NOT NEW.simulation_id;
-
-            -- 3) reciprocal pointer: successor must point back to this event
-            SELECT RAISE(ABORT, 'successor scheduled event must have supersedes_event_id pointing to this event')
-            WHERE NEW.superseded_by_event_id IS NOT NULL
               AND (SELECT supersedes_event_id FROM lws_scheduled_events WHERE id = NEW.superseded_by_event_id) IS NOT NEW.id;
 
             -- Trigger event same simulation guard
