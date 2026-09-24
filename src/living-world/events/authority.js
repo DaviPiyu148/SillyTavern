@@ -13,6 +13,27 @@ import { validateFictionalTimestamp } from '../simulations/common.js';
  */
 export function evaluateAuthority(db, sim, proposal, callerContext = {}) {
     // ------------------------------------------------------------------------
+    // Stage 0: Dedicated Route Policy (One Authoritative Path)
+    // ------------------------------------------------------------------------
+    const DEDICATED_ROUTE_EVENTS = new Set([
+        EVENT_TYPES.TIME_ADVANCE,
+        EVENT_TYPES.SCHEDULE_WORLD_EVENT,
+        EVENT_TYPES.CANCEL_SCHEDULED_EVENT,
+        EVENT_TYPES.SUPERSEDE_SCHEDULED_EVENT,
+        EVENT_TYPES.TRIGGER_SCHEDULED_EVENT,
+        EVENT_TYPES.UPDATE_CHARACTER_ROUTINE,
+    ]);
+
+    if (DEDICATED_ROUTE_EVENTS.has(proposal?.event_type)) {
+        if (!callerContext.isDedicatedRoute && !callerContext.isTimeAdvance && !callerContext.isInternalSystem) {
+            throw new LwsAuthorityError(
+                `Event type '${proposal.event_type}' requires submission through its dedicated API route`,
+                'DEDICATED_ROUTE_REQUIRED',
+            );
+        }
+    }
+
+    // ------------------------------------------------------------------------
     // Stage 1: Schema Validation
     // ------------------------------------------------------------------------
     validateProposalSchema(proposal);
@@ -174,14 +195,37 @@ export function evaluateAuthority(db, sim, proposal, callerContext = {}) {
         }
     }
 
-    // 3. Fictional Clock Lock (Phase 4 Invariant)
+    // 4. Fictional Clock Authority (Three-class model)
     let fictionalTime = proposal.fictional_time ?? sim.current_fictional_time;
     validateFictionalTimestamp(fictionalTime);
-    if (fictionalTime !== sim.current_fictional_time) {
-        throw new LwsAuthorityError(
-            `event fictional_time (${fictionalTime}) must match simulation current_fictional_time (${sim.current_fictional_time}) in Phase 4`,
-            'FICTIONAL_TIME_MISMATCH',
-        );
+
+    if (callerContext.isTimeAdvance) {
+        // Consequence event or Root Time Advance
+        const { startFictionalTime, targetFictionalTime } = callerContext;
+        if (proposal.event_type === EVENT_TYPES.TIME_ADVANCE) {
+            if (fictionalTime !== targetFictionalTime) {
+                throw new LwsAuthorityError(
+                    `Root TIME_ADVANCE fictional_time (${fictionalTime}) must match target_fictional_time (${targetFictionalTime})`,
+                    'FICTIONAL_TIME_MISMATCH',
+                );
+            }
+        } else {
+            // Intermediate consequence event: startFictionalTime <= fictionalTime <= targetFictionalTime
+            if (fictionalTime < startFictionalTime || fictionalTime > targetFictionalTime) {
+                throw new LwsAuthorityError(
+                    `Consequence event fictional_time (${fictionalTime}) must be within [${startFictionalTime}, ${targetFictionalTime}]`,
+                    'FICTIONAL_TIME_OUT_OF_BOUNDS',
+                );
+            }
+        }
+    } else {
+        // Normal / direct event: MUST match simulation current fictional time
+        if (fictionalTime !== sim.current_fictional_time) {
+            throw new LwsAuthorityError(
+                `event fictional_time (${fictionalTime}) must match simulation current_fictional_time (${sim.current_fictional_time})`,
+                'FICTIONAL_TIME_MISMATCH',
+            );
+        }
     }
 
     // 4. Spatial Proximity / Collocation Authority

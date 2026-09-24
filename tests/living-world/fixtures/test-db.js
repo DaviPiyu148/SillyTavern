@@ -10,19 +10,20 @@ import { runMigrations } from '../../../src/living-world/migrations/index.js';
  *
  * @returns {Database.Database}
  */
-export function createInMemoryTestDb() {
+export function createInMemoryTestDb(targetVersion = undefined) {
     const db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
-    runMigrations(db);
+    runMigrations(db, targetVersion);
     return db;
 }
 
 /**
  * Convenient alias for createInMemoryTestDb.
+ * @param {number} [targetVersion]
  * @returns {Database.Database}
  */
-export function createTestDb() {
-    return createInMemoryTestDb();
+export function createTestDb(targetVersion = undefined) {
+    return createInMemoryTestDb(targetVersion);
 }
 
 /**

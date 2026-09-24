@@ -7,7 +7,7 @@ describe('LWS Migration 004: Events Ledger and Narrative Turns Database Integrit
     let db;
 
     beforeEach(() => {
-        db = createTestDb();
+        db = createTestDb(4);
     });
 
     afterEach(() => {
@@ -31,7 +31,7 @@ describe('LWS Migration 004: Events Ledger and Narrative Turns Database Integrit
         expect(Number(legacyDb.pragma('user_version', { simple: true }))).toBe(3);
 
         // Run migrations to apply migration 004
-        const updatedVersion = runMigrations(legacyDb);
+        const updatedVersion = runMigrations(legacyDb, 4);
         expect(updatedVersion).toBe(4);
         expect(Number(legacyDb.pragma('user_version', { simple: true }))).toBe(4);
 

@@ -69,14 +69,9 @@ export const ACTIVE_PHASE_4_EVENTS = Object.freeze(new Set([
     EVENT_TYPES.COMBAT_ACTION,
 ]));
 
-export const DEFERRED_PHASE_5_EVENTS = Object.freeze(new Set([
-    EVENT_TYPES.TIME_ADVANCE,
-    EVENT_TYPES.SCHEDULE_WORLD_EVENT,
-    EVENT_TYPES.CANCEL_SCHEDULED_EVENT,
-    EVENT_TYPES.SUPERSEDE_SCHEDULED_EVENT,
-    EVENT_TYPES.TRIGGER_SCHEDULED_EVENT,
-    EVENT_TYPES.UPDATE_CHARACTER_ROUTINE,
-]));
+export const DEFERRED_PHASE_5_EVENTS = Object.freeze(new Set([]));
+
+export const ACTIVE_PHASE_5_EVENTS = Object.freeze(new Set(ALL_EVENT_TYPES));
 
 export const STATEFUL_EVENTS = Object.freeze(new Set([
     EVENT_TYPES.SIMULATION_START,
@@ -92,6 +87,12 @@ export const STATEFUL_EVENTS = Object.freeze(new Set([
     EVENT_TYPES.DIRECTOR_MODIFY_STATE,
     EVENT_TYPES.REST,
     EVENT_TYPES.WORK,
+    EVENT_TYPES.TIME_ADVANCE,
+    EVENT_TYPES.SCHEDULE_WORLD_EVENT,
+    EVENT_TYPES.CANCEL_SCHEDULED_EVENT,
+    EVENT_TYPES.SUPERSEDE_SCHEDULED_EVENT,
+    EVENT_TYPES.TRIGGER_SCHEDULED_EVENT,
+    EVENT_TYPES.UPDATE_CHARACTER_ROUTINE,
 ]));
 
 export const PROVENANCE_TYPES = Object.freeze([
@@ -283,6 +284,57 @@ export function validateProposalSchema(proposal) {
         case EVENT_TYPES.GENERAL_ACTION:
             if (!proposal.actor_character_id) {
                 throw new LwsValidationError(`actor_character_id is required for ${proposal.event_type}`, ['actor_character_id']);
+            }
+            break;
+
+        case EVENT_TYPES.TIME_ADVANCE:
+            if (!payload.target_fictional_time && payload.duration_seconds === undefined) {
+                throw new LwsValidationError('target_fictional_time or duration_seconds is required for TIME_ADVANCE', ['target_fictional_time']);
+            }
+            break;
+
+        case EVENT_TYPES.SCHEDULE_WORLD_EVENT:
+            if (typeof payload.title !== 'string' || !payload.title.trim()) {
+                throw new LwsValidationError('payload.title is required for SCHEDULE_WORLD_EVENT', ['payload.title']);
+            }
+            if (!payload.scheduled_fictional_time) {
+                throw new LwsValidationError('payload.scheduled_fictional_time is required for SCHEDULE_WORLD_EVENT', ['payload.scheduled_fictional_time']);
+            }
+            break;
+
+        case EVENT_TYPES.CANCEL_SCHEDULED_EVENT:
+            if (!payload.scheduled_event_id || !isValidUuid(payload.scheduled_event_id)) {
+                throw new LwsValidationError('payload.scheduled_event_id must be a valid UUID for CANCEL_SCHEDULED_EVENT', ['payload.scheduled_event_id']);
+            }
+            break;
+
+        case EVENT_TYPES.SUPERSEDE_SCHEDULED_EVENT:
+            if (!payload.predecessor_id || !isValidUuid(payload.predecessor_id)) {
+                throw new LwsValidationError('payload.predecessor_id must be a valid UUID for SUPERSEDE_SCHEDULED_EVENT', ['payload.predecessor_id']);
+            }
+            if (typeof payload.title !== 'string' || !payload.title.trim()) {
+                throw new LwsValidationError('payload.title is required for SUPERSEDE_SCHEDULED_EVENT', ['payload.title']);
+            }
+            if (!payload.scheduled_fictional_time) {
+                throw new LwsValidationError('payload.scheduled_fictional_time is required for SUPERSEDE_SCHEDULED_EVENT', ['payload.scheduled_fictional_time']);
+            }
+            break;
+
+        case EVENT_TYPES.TRIGGER_SCHEDULED_EVENT:
+            if (!payload.scheduled_event_id || !isValidUuid(payload.scheduled_event_id)) {
+                throw new LwsValidationError('payload.scheduled_event_id must be a valid UUID for TRIGGER_SCHEDULED_EVENT', ['payload.scheduled_event_id']);
+            }
+            break;
+
+        case EVENT_TYPES.UPDATE_CHARACTER_ROUTINE:
+            if (!proposal.actor_character_id) {
+                throw new LwsValidationError('actor_character_id is required for UPDATE_CHARACTER_ROUTINE', ['actor_character_id']);
+            }
+            if (payload.action !== 'replace_all') {
+                throw new LwsValidationError('payload.action must be \'replace_all\'', ['payload.action']);
+            }
+            if (!Array.isArray(payload.routines)) {
+                throw new LwsValidationError('payload.routines must be an array', ['payload.routines']);
             }
             break;
 

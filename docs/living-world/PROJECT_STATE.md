@@ -52,8 +52,8 @@ Travel consumes fictional time; older instantaneous-travel interpretation is sup
 | **Phase 1** | **LWS Host Foundation** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Unit suite (`tests/living-world/`) passes (21/21 tests); ST full suite passes (432/432 tests); real ST server process lifecycle verified with live HTTP probe; clean shutdown verified; SQLite WAL DB created at `data/living-world/lws.db`. |
 | **Phase 2** | **Authored World and Character Model** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 002 applied (`PRAGMA user_version = 2`); exactly 9 authored tables, 12 DB triggers (cross-world relationship integrity & `world_id` immutability), 5 partial indexes; 7 authored domain services; 40+ REST endpoints under `/api/living-world/worlds`; ST V2 character mapped subset; full unit and integration test suites passing (32/32 suites, 499/499 tests); linters clean (0 errors). |
 | **Phase 3** | **Simulation Runtime and Persistence** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 003 applied (`PRAGMA user_version = 3`); exactly 2 runtime tables (`lws_simulations`, `lws_simulation_characters`), 10 DB triggers, 5 indexes; Simulation & SimulationCharacter domain services; scenario instantiation with atomic roster snapshotting; Two-Simulation Isolation proven; status transition matrix; semantic calendar date validation; soft-deleted location assignment guards; 10 authenticated REST endpoints; full test suites passing (37/37 suites, 543/543 tests); linters clean (0 errors). |
-| **Phase 4** | **Events, Authority, and State Transitions** | **IMPLEMENTED & VERIFIED** | Migration 004 applied (`PRAGMA user_version = 4`); tables `lws_events` and `lws_narrative_turns`; exactly 16 DB triggers; exactly 7 DB indexes; closed 29-event taxonomy (23 active Phase 4, 6 deferred Phase 5, 13 stateful); 4-stage authority pipeline; server-enforced provenance; Phase 3 mutation bypasses eliminated; two-transaction savepoint execution with durable rejected-turn persistence; pure in-memory zero-SQL replay engine (`replaySimulation`) with 100% parity verification (`verifySimulationParity`); 7 REST endpoints; 24 test suites / 183 tests passing; linters clean (0 errors); ADR-012 authored. |
-| Phase 5 | Fictional Time, Schedules, Routines, and Travel | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
+| **Phase 4** | **Events, Authority, and State Transitions** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 004 applied (`PRAGMA user_version = 4`); tables `lws_events` and `lws_narrative_turns`; exactly 16 DB triggers; exactly 7 DB indexes; closed 29-event taxonomy (23 active Phase 4, 6 deferred Phase 5, 13 stateful); 4-stage authority pipeline; server-enforced provenance; Phase 3 mutation bypasses eliminated; two-transaction savepoint execution with durable rejected-turn persistence; pure in-memory zero-SQL replay engine (`replaySimulation`) with 100% parity verification (`verifySimulationParity`); 7 REST endpoints; 24 test suites / 184 tests passing; linters clean (0 errors); ADR-012 authored. |
+| **Phase 5** | **Fictional Time, Schedules, Routines, and Travel** | **IMPLEMENTED & VERIFIED** | Migration 005 applied (`PRAGMA user_version = 5`); exactly 2 new tables (`lws_simulation_character_routines`, `lws_scheduled_events`); exactly 9 Phase 5 DB triggers (1 evolved monotonic clock trigger + 4 routine triggers + 4 scheduled-event triggers; 24 cumulative triggers across system); exactly 4 new indexes (11 cumulative across Phase 4 & 5 tables); closed 29-event taxonomy fully activated (all 29 active, 0 deferred, 19 stateful); discrete timeline resolution engine discovering critical sub-events in $(T_{\text{start}}, T_{\text{target}}]$; 6-tier routine arbitration with severe condition suspension; tree LCA spatial travel with planned departures ($T_{\text{dep}} = T_{\text{start}} - \text{duration}$); reciprocal supersession integrity enforced at DB boundary; One Authoritative Path policy (`POST /events` rejects Phase 5 events with HTTP 422 `DEDICATED_ROUTE_REQUIRED`); pure zero-SQL in-memory replay with 100% parity verification; 8 new REST endpoints; targeted test suite passing (31/31 suites, 241/241 tests); full repository unit suite passing (50/50 suites, 652/652 tests); linters clean (0 errors); ADR-013 authored. |
 | Phase 6 | Perception, Knowledge, Memory, and Observation | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
 | Phase 7 | Character Cognition and Decision Making | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
 | Phase 8 | Social Systems and Character Development | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
@@ -173,8 +173,48 @@ Phase 4 establishes the authoritative event ledger, narrative turn savepoint mod
 - **REST API (7 Endpoints)**:
   - Mounts narrative turn execution, queries, event emission, listing, detail, and replay verification (`POST .../replay-verify`) endpoints under `/api/living-world/simulations/:simLwsId/*`.
 
-#### 2. Future Scope Distinction (Phase 5+)
-- **Phase 5 Future Scope**: Fictional time progression engine, scheduled routines, and travel calculation across space. Current fictional time advances only via explicit event commits.
+### Phase 5 Implementation Details and Scope Distinction
+
+Phase 5 delivers fictional time progression, character routine arbitration, spatial travel, and scheduled world events under migration `005_time_and_schedules` (`PRAGMA user_version = 5`).
+
+#### 1. Implemented Phase 5 Scope
+- **Schema & Migrations (Migration 005)**:
+  - `lws_simulation_character_routines`: Persistent character schedule blocks supporting 24h start/end times, overnight wrapping, day of week specificity, priority ranking, flexibility, enabled flag, and target location.
+  - `lws_scheduled_events`: World event schedule tracking target location, scheduled fictional timestamp, status lifecycle (`pending`, `triggered`, `cancelled`, `superseded`), payload JSON, and supersession links.
+- **Database Boundary Hardening (Cumulative 24 Triggers)**:
+  - 9 Phase 5 trigger objects:
+    1. `trg_lws_events_monotonic_and_sequence`: Enforces sequence monotonicity, clock non-retroactivity, and unbroken sequences on `lws_events`.
+    2. `trg_lws_routines_immutability`: Enforces immutability of `simulation_id` and `simulation_character_id`.
+    3. `trg_lws_routines_integrity`: Validates character simulation membership and active world location existence.
+    4. `trg_lws_routines_no_delete`: Enforces soft-delete only for routines.
+    5. `trg_lws_sched_events_immutability`: Enforces immutability of `simulation_id`.
+    6. `trg_lws_sched_events_terminal_immutable`: Freezes terminal events (`triggered`, `cancelled`, `superseded`).
+    7. `trg_lws_sched_events_integrity`: Validates active location, same-simulation supersession, and trigger/cancel event linkages.
+    8. `trg_lws_sched_events_reciprocal_supersession`: Enforces bidirectional supersession locking ($A.\text{superseded\_by} = B \iff B.\text{supersedes} = A$) and status `superseded` at the DB boundary.
+    9. `trg_lws_sched_events_no_delete`: Prohibits direct `DELETE` on scheduled events.
+- **Indexes (Cumulative 11 Indexes)**:
+  - 4 Phase 5 indexes: `idx_lws_routines_sim_char`, `idx_lws_routines_lookup`, `idx_lws_sched_events_sim_time` (`WHERE status = 'pending'`), `idx_lws_sched_events_sim_status`.
+- **Closed 29-Event Taxonomy**:
+  - All 29 event types active (0 deferred, 19 stateful).
+  - Generic `POST /events` rejects all 6 Phase 5 events with HTTP 422 `DEDICATED_ROUTE_REQUIRED`.
+- **Discrete Timeline Advancement & Discovery Engine**:
+  - `POST /simulations/:simLwsId/time-advance` gathers scheduled event triggers, planned routine travel departures ($T_{\text{dep}} = T_{\text{start}} - \text{duration}$), and in-transit arrivals in $(T_{\text{start}}, T_{\text{target}}]$.
+  - Deterministic sub-event sequence ordering: $(T_{\text{point}} \text{ asc}, \text{sub-event priority asc}, \text{entity\_id asc})$.
+  - Zero-duration advance idempotence ($T_{\text{start}} = T_{\text{target}}$ generates 0 consequence events and 0 ledger mutations).
+- **6-Tier Routine Arbitration & Severe Condition Suspension**:
+  - Severe physical condition (Tier 1) suspends travel and routines.
+  - Recovers travel upon condition resolution if destination routine remains active.
+- **Tree LCA Spatial Travel**:
+  - Hierarchical tree LCA distance calculation with connection override lookups.
+  - Complete travel lifecycle with planned departures, in-transit runtime tracking, and arrival relocations.
+- **Pure Replay & Deep Parity**:
+  - `simulationReducer` handles all 6 Phase 5 events in pure memory with zero SQL.
+  - `verifySimulationParity` proves 100% attribute parity across simulations, characters, routines, and scheduled events with zero drift.
+- **REST API (8 New Endpoints)**:
+  - Mounts time advance (`POST .../time-advance`), routine management (`GET/PUT .../routines`), scheduled event lifecycle (`POST .../scheduled-events`, `GET .../scheduled-events`, `GET .../scheduled-events/:id`, `POST .../scheduled-events/:id/cancel`, `POST .../scheduled-events/:id/supersede`).
+
+#### 2. Future Scope Distinction (Phase 6+)
+- **Phase 6 Future Scope**: Perception, knowledge, memory, and observation subsystems. Filtering character knowledge by physical location and observation boundaries.
 
 ## Status labels
 

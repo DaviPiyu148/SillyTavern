@@ -63,8 +63,16 @@ import {
     getNarrativeTurnByLwsId,
     listNarrativeTurns,
     verifySimulationParity,
+    advanceFictionalTime,
+    getScheduledEvents,
+    getScheduledEventByLwsId,
+    validateScheduledEventInput,
+    validateRoutineBlock,
+    ensureActiveSimulation,
+    EVENT_TYPES,
+    getDb,
 } from '../living-world/index.js';
-import { isValidUuid } from '../living-world/authored/common.js';
+import { isValidUuid, generateUuid } from '../living-world/authored/common.js';
 
 const router = express.Router();
 
@@ -829,6 +837,252 @@ router.post('/simulations/:simLwsId/replay-verify', (req, res) => {
         return res.json(result);
     } catch (err) {
         return handleRouteError(err, res, 'POST /simulations/:simLwsId/replay-verify');
+    }
+});
+
+// ============================================================================
+// Phase 5: Time Advance, Scheduled Events, and Routines
+// ============================================================================
+
+// 8. POST /simulations/:simLwsId/time-advance
+router.post('/simulations/:simLwsId/time-advance', async (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const result = await advanceFictionalTime(db, {
+            simLwsId: req.params.simLwsId,
+            targetFictionalTime: req.body?.target_fictional_time,
+            durationSeconds: req.body?.duration_seconds,
+            expectedFictionalTime: req.body?.expected_fictional_time,
+            provenance: req.body?.provenance ?? 'user',
+        });
+        return res.json(result);
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/time-advance');
+    }
+});
+
+// 9. POST /simulations/:simLwsId/scheduled-events
+router.post('/simulations/:simLwsId/scheduled-events', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const input = validateScheduledEventInput(req.body ?? {}, sim.current_fictional_time);
+        if (input.target_location_id) {
+            const loc = db.prepare('SELECT id, deleted_at FROM lws_locations WHERE lws_id = ? AND world_id = ?').get(input.target_location_id, sim.world_id);
+            if (!loc) throw new LwsNotFoundError(`Location ${input.target_location_id} not found in this world`);
+            if (loc.deleted_at !== null) throw new LwsValidationError('Cannot assign a soft-deleted location to scheduled event', ['target_location_id']);
+        }
+        const scheduledEventId = generateUuid();
+
+        const event = commitEvent(req.params.simLwsId, {
+            event_type: EVENT_TYPES.SCHEDULE_WORLD_EVENT,
+            fictional_time: sim.current_fictional_time,
+            provenance: req.body?.provenance ?? 'user',
+            payload: {
+                scheduled_event_id: scheduledEventId,
+                scheduled_fictional_time: input.scheduled_fictional_time,
+                title: input.title,
+                description: input.description,
+                target_location_id: input.target_location_id,
+                payload: input.payload,
+                supersedes_event_id: null,
+            },
+        }, { isDedicatedRoute: true });
+
+        const created = getScheduledEventByLwsId(db, sim.id, scheduledEventId);
+        return res.status(201).json({ ...created, commit_event: event });
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/scheduled-events');
+    }
+});
+
+// 10. GET /simulations/:simLwsId/scheduled-events
+router.get('/simulations/:simLwsId/scheduled-events', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const events = getScheduledEvents(db, sim.id, {
+            status: req.query?.status,
+            fromTime: req.query?.from_time,
+            toTime: req.query?.to_time,
+        });
+        return res.json(events);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/scheduled-events');
+    }
+});
+
+// 11. GET /simulations/:simLwsId/scheduled-events/:eventLwsId
+router.get('/simulations/:simLwsId/scheduled-events/:eventLwsId', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, eventLwsId: req.params.eventLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const event = getScheduledEventByLwsId(db, sim.id, req.params.eventLwsId);
+        return res.json(event);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/scheduled-events/:eventLwsId');
+    }
+});
+
+// 12. POST /simulations/:simLwsId/scheduled-events/:eventLwsId/cancel
+router.post('/simulations/:simLwsId/scheduled-events/:eventLwsId/cancel', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, eventLwsId: req.params.eventLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const existing = getScheduledEventByLwsId(db, sim.id, req.params.eventLwsId);
+        if (existing.status !== 'pending') {
+            throw new LwsConflictError(`Cannot cancel scheduled event with terminal status '${existing.status}'`);
+        }
+
+        const event = commitEvent(req.params.simLwsId, {
+            event_type: EVENT_TYPES.CANCEL_SCHEDULED_EVENT,
+            fictional_time: sim.current_fictional_time,
+            provenance: req.body?.provenance ?? 'user',
+            payload: {
+                scheduled_event_id: req.params.eventLwsId,
+                reason: req.body?.reason || 'cancelled_by_user',
+            },
+        }, { isDedicatedRoute: true });
+
+        const updated = getScheduledEventByLwsId(db, sim.id, req.params.eventLwsId);
+        return res.json({ ...updated, cancel_event: event });
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/scheduled-events/:eventLwsId/cancel');
+    }
+});
+
+// 13. POST /simulations/:simLwsId/scheduled-events/:eventLwsId/supersede
+router.post('/simulations/:simLwsId/scheduled-events/:eventLwsId/supersede', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, eventLwsId: req.params.eventLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const existing = getScheduledEventByLwsId(db, sim.id, req.params.eventLwsId);
+        if (existing.status !== 'pending') {
+            throw new LwsConflictError(`Cannot supersede scheduled event with terminal status '${existing.status}'`);
+        }
+
+        const input = validateScheduledEventInput(req.body ?? {}, sim.current_fictional_time);
+        if (input.target_location_id) {
+            const loc = db.prepare('SELECT id, deleted_at FROM lws_locations WHERE lws_id = ? AND world_id = ?').get(input.target_location_id, sim.world_id);
+            if (!loc) throw new LwsNotFoundError(`Location ${input.target_location_id} not found in this world`);
+            if (loc.deleted_at !== null) throw new LwsValidationError('Cannot assign a soft-deleted location to scheduled event', ['target_location_id']);
+        }
+        const successorId = generateUuid();
+
+        const event = commitEvent(req.params.simLwsId, {
+            event_type: EVENT_TYPES.SUPERSEDE_SCHEDULED_EVENT,
+            fictional_time: sim.current_fictional_time,
+            provenance: req.body?.provenance ?? 'user',
+            payload: {
+                predecessor_id: req.params.eventLwsId,
+                successor_id: successorId,
+                scheduled_fictional_time: input.scheduled_fictional_time,
+                title: input.title,
+                description: input.description,
+                target_location_id: input.target_location_id,
+                payload: input.payload,
+            },
+        }, { isDedicatedRoute: true });
+
+        const successor = getScheduledEventByLwsId(db, sim.id, successorId);
+        return res.status(201).json({ ...successor, supersede_event: event });
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/scheduled-events/:eventLwsId/supersede');
+    }
+});
+
+// 14. PUT /simulations/:simLwsId/characters/:charLwsId/routines
+router.put('/simulations/:simLwsId/characters/:charLwsId/routines', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const rawRoutines = req.body?.routines;
+        if (!Array.isArray(rawRoutines)) {
+            throw new LwsValidationError('routines must be an array', ['routines']);
+        }
+
+        const validatedRoutines = rawRoutines.map((r, i) => validateRoutineBlock(r, i));
+        for (const r of validatedRoutines) {
+            if (r.target_location_id) {
+                const loc = db.prepare('SELECT id, deleted_at FROM lws_locations WHERE lws_id = ? AND world_id = ?').get(r.target_location_id, sim.world_id);
+                if (!loc) throw new LwsNotFoundError(`Location ${r.target_location_id} not found in this world`);
+                if (loc.deleted_at !== null) throw new LwsValidationError('Cannot assign a soft-deleted location to routine', ['target_location_id']);
+            }
+        }
+
+        const event = commitEvent(req.params.simLwsId, {
+            event_type: EVENT_TYPES.UPDATE_CHARACTER_ROUTINE,
+            actor_character_id: req.params.charLwsId,
+            fictional_time: sim.current_fictional_time,
+            provenance: req.body?.provenance ?? 'user',
+            payload: {
+                action: 'replace_all',
+                routines: validatedRoutines,
+            },
+        }, { isDedicatedRoute: true });
+
+        return res.json({ routines: validatedRoutines, event });
+    } catch (err) {
+        return handleRouteError(err, res, 'PUT /simulations/:simLwsId/characters/:charLwsId/routines');
+    }
+});
+
+// 15. GET /simulations/:simLwsId/characters/:charLwsId/routines
+router.get('/simulations/:simLwsId/characters/:charLwsId/routines', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const charRow = db.prepare(`
+            SELECT id FROM lws_simulation_characters
+            WHERE lws_id = ? AND simulation_id = ? AND deleted_at IS NULL
+        `).get(req.params.charLwsId, sim.id);
+
+        if (!charRow) {
+            throw new LwsNotFoundError(`Character ${req.params.charLwsId} not found in this simulation`);
+        }
+
+        const routines = db.prepare(`
+            SELECT r.*, loc.lws_id AS target_location_lws_id
+            FROM lws_simulation_character_routines r
+            LEFT JOIN lws_locations loc ON r.target_location_id = loc.id
+            WHERE r.simulation_character_id = ? AND r.deleted_at IS NULL
+            ORDER BY r.priority DESC, r.day_of_week ASC, r.start_time ASC
+        `).all(charRow.id);
+
+        const formatted = routines.map(r => ({
+            lws_id: r.lws_id,
+            block_id: r.block_id,
+            day_of_week: r.day_of_week,
+            start_time: r.start_time,
+            end_time: r.end_time,
+            activity: r.activity,
+            target_location_id: r.target_location_lws_id || null,
+            priority: r.priority,
+            flexibility: r.flexibility,
+            enabled: r.enabled,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        }));
+
+        return res.json({ routines: formatted });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/routines');
     }
 });
 

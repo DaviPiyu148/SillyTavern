@@ -83,9 +83,15 @@ export * from './authored/world-rules.js';
 export * from './authored/prompt-configs.js';
 export * from './simulations/simulations.js';
 export * from './simulations/simulation-characters.js';
+export * from './simulations/common.js';
 export * from './events/taxonomy.js';
 export * from './events/authority.js';
 export * from './events/events.js';
 export * from './events/narrative-turns.js';
 export * from './events/replay.js';
+export * from './simulations/lock.js';
+export * from './time/routines.js';
+export * from './time/scheduled-events.js';
+export * from './time/travel.js';
+export * from './time/time-advance.js';
 

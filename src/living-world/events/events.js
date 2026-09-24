@@ -186,7 +186,7 @@ export function internalCommitEvent(db, sim, proposal, callerContext = {}) {
     }
 
     // 5. Insert Event Record
-    db.prepare(`
+    const insertResult = db.prepare(`
         INSERT INTO lws_events (
             lws_id, simulation_id, sequence_number, event_type, fictional_time,
             actor_character_id, target_character_id, authored_character_id, location_id,
@@ -209,6 +209,11 @@ export function internalCommitEvent(db, sim, proposal, callerContext = {}) {
         evaluated.idempotency_key,
         eventCreatedAt,
     );
+
+    evaluated.event_internal_id = insertResult.lastInsertRowid;
+    evaluated.event_lws_id = eventLwsId;
+    evaluated.actor_internal_id = finalActorInternalId;
+    evaluated.payload = finalPayload;
 
     // 6. Apply State Transition
     applyStateTransition(db, sim, evaluated, eventCreatedAt);

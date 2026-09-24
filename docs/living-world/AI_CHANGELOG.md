@@ -30,6 +30,97 @@ Known limitations or implications.
 
 ---
 
+## 2026-09-24 — Phase 5: Fictional Time, Schedules, Routines, and Travel
+
+Status: IMPLEMENTED / VERIFIED
+
+### Change
+Implemented authoritative fictional time progression, character routine arbitration, spatial travel mechanics, scheduled world events with reciprocal supersession, pure zero-SQL replay, and REST endpoints for Living World Simulator (LWS):
+
+1. Created database migration `005_time_and_schedules.js` elevating schema version to `PRAGMA user_version = 5`:
+   - Exactly 2 new tables: `lws_simulation_character_routines` and `lws_scheduled_events`.
+   - Exactly 9 Phase 5 triggers (1 evolved monotonic clock trigger + 4 routine triggers + 4 scheduled-event triggers; 24 cumulative across system):
+     1. `trg_lws_events_monotonic_and_sequence`: Replaces `trg_lws_events_fictional_time_matches_sim`, enforcing sequence monotonicity, clock non-retroactivity, and unbroken incremental sequencing.
+     2. `trg_lws_routines_immutability`: Enforces immutability of `simulation_id` and `simulation_character_id`.
+     3. `trg_lws_routines_integrity`: Validates character simulation membership and active world location existence.
+     4. `trg_lws_routines_no_delete`: Enforces soft-delete only for routines.
+     5. `trg_lws_sched_events_immutability`: Enforces immutability of `simulation_id`.
+     6. `trg_lws_sched_events_terminal_immutable`: Freezes terminal events (`triggered`, `cancelled`, `superseded`).
+     7. `trg_lws_sched_events_integrity`: Validates active location, same-simulation supersession, and trigger/cancel event linkages.
+     8. `trg_lws_sched_events_reciprocal_supersession`: Enforces bidirectional supersession locking and status `superseded`.
+     9. `trg_lws_sched_events_no_delete`: Prohibits direct `DELETE` on scheduled events.
+   - Exactly 4 new indexes: `idx_lws_routines_sim_char`, `idx_lws_routines_lookup`, `idx_lws_sched_events_sim_time` (`WHERE status = 'pending'`), `idx_lws_sched_events_sim_status`.
+
+2. Activated all 6 Phase 5 event types in the closed 29-event taxonomy:
+   - All 29 event types active, 0 deferred, 19 stateful.
+   - One Authoritative Path policy: `POST /events` rejects all 6 Phase 5 event types with HTTP 422 `DEDICATED_ROUTE_REQUIRED`.
+
+3. Implemented Temporal Modules (`src/living-world/time/`):
+   - `routines.js`: 6-tier deterministic arbitration, 24-hour validation, overnight matching, and day specificity ranking.
+   - `scheduled-events.js`: Querying, validation, and DTO formatting for scheduled world events.
+   - `travel.js`: Tree distance LCA computation, connection override lookup, planned departure, and arrival ETA.
+   - `time-advance.js`: Timeline resolution engine discovering critical sub-events in $(T_{\text{start}}, T_{\text{target}}]$, travel departure/arrival execution, severe condition suspension/recovery, zero-duration advance idempotence, and deterministic sub-event sequence ordering.
+
+4. Expanded Pure Replay and Parity Engine (`src/living-world/events/replay.js`):
+   - `simulationReducer` handles all 6 Phase 5 events in-memory with zero SQL queries.
+   - `verifySimulationParity` proves 100% attribute parity across simulations, characters, routines, and scheduled events with zero drift.
+
+5. Mounted 8 Dedicated REST Endpoints (`src/endpoints/living-world.js`):
+   - `POST /api/living-world/simulations/:simLwsId/time-advance`
+   - `GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/routines`
+   - `PUT /api/living-world/simulations/:simLwsId/characters/:charLwsId/routines`
+   - `POST /api/living-world/simulations/:simLwsId/scheduled-events`
+   - `GET /api/living-world/simulations/:simLwsId/scheduled-events`
+   - `GET /api/living-world/simulations/:simLwsId/scheduled-events/:eventLwsId`
+   - `POST /api/living-world/simulations/:simLwsId/scheduled-events/:eventLwsId/cancel`
+   - `POST /api/living-world/simulations/:simLwsId/scheduled-events/:eventLwsId/supersede`
+
+### Reason
+Fulfill Phase 5 of the Living World Simulator plan: implement autonomous character routines, scheduled world events, spatial travel consuming fictional time, discrete timeline advancement, and pure zero-SQL replay.
+
+### Files/modules
+- `src/living-world/migrations/005_time_and_schedules.js`
+- `src/living-world/simulations/lock.js`
+- `src/living-world/time/routines.js`
+- `src/living-world/time/scheduled-events.js`
+- `src/living-world/time/travel.js`
+- `src/living-world/time/time-advance.js`
+- `src/living-world/events/taxonomy.js`
+- `src/living-world/events/authority.js`
+- `src/living-world/events/events.js`
+- `src/living-world/events/state-transitions.js`
+- `src/living-world/events/replay.js`
+- `src/endpoints/living-world.js`
+- `tests/living-world/lws-time-db.test.js`
+- `tests/living-world/lws-routines.test.js`
+- `tests/living-world/lws-scheduled-events.test.js`
+- `tests/living-world/lws-travel.test.js`
+- `tests/living-world/lws-time-advance.test.js`
+- `tests/living-world/lws-time-replay.test.js`
+- `tests/living-world/lws-time-security.test.js`
+- `docs/living-world/decisions/ADR-013-temporal-progression-schedules-routines-travel.md`
+- `docs/living-world/PERSISTENCE.md`
+- `docs/living-world/PROJECT_STATE.md`
+- `docs/living-world/AI_CHANGELOG.md`
+
+### Architecture
+- Enforces Three Timestamp Classes: Direct events ($T_{\text{current}}$), Consequence events ($[T_{\text{start}}, T_{\text{target}}]$), Root Advance ($T_{\text{target}}$).
+- One Authoritative Path: dedicated routes required for all temporal mutations.
+- Pure Zero-SQL Replay: deterministic in-memory fold matches SQLite projections 100%.
+- Database Boundary Invariants: monotonic clocks, reciprocal supersession consistency, and soft-delete protection enforced via triggers.
+
+### Tests
+- Targeted LWS test suite: 31 passed suites, 241 passed tests.
+- Full repository unit test suite: 50 passed suites, 652 passed tests.
+- Root linter (`npm run lint`): 0 errors, 0 warnings.
+- Tests linter (`npm --prefix tests run lint`): 0 errors, 2 warnings (existing upstream Playwright warnings).
+
+### Notes
+- Zero browser automation / DevTools tests used (strictly conforms to AGENTS.md rule 16).
+- Cumulative database schema: 15 tables, 24 triggers, 11 indexes.
+
+---
+
 ## 2026-09-23 — Phase 4: Events, Authority, and State Transitions
 
 Status: IMPLEMENTED / VERIFIED

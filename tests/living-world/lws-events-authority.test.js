@@ -157,8 +157,8 @@ describe('LWS Event Authority Engine and Provenance Enforcement', () => {
             expect(caughtErr?.message).toContain('Unknown event_type');
         });
 
-        test('rejects Phase 5 deferred event types with EVENT_TYPE_DEFERRED', () => {
-            const deferredTypes = [
+        test('rejects Phase 5 dedicated event types on generic commitEvent with DEDICATED_ROUTE_REQUIRED', () => {
+            const dedicatedTypes = [
                 'TRIGGER_SCHEDULED_EVENT',
                 'SCHEDULE_WORLD_EVENT',
                 'CANCEL_SCHEDULED_EVENT',
@@ -167,7 +167,7 @@ describe('LWS Event Authority Engine and Provenance Enforcement', () => {
                 'TIME_ADVANCE',
             ];
 
-            for (const dType of deferredTypes) {
+            for (const dType of dedicatedTypes) {
                 let caughtErr;
                 try {
                     commitEvent(sim.lws_id, {
@@ -178,7 +178,7 @@ describe('LWS Event Authority Engine and Provenance Enforcement', () => {
                     caughtErr = err;
                 }
                 expect(caughtErr).toBeInstanceOf(LwsAuthorityError);
-                expect(caughtErr?.code).toBe('EVENT_TYPE_DEFERRED');
+                expect(caughtErr?.code).toBe('DEDICATED_ROUTE_REQUIRED');
             }
         });
     });
