@@ -1,6 +1,7 @@
 import { LwsValidationError, LwsNotFoundError } from '../errors.js';
 import {
     generateUuid,
+    generateDeterministicUuid,
     isValidUuid,
     isoNow,
     validateName,
@@ -13,6 +14,7 @@ import {
 
 export {
     generateUuid,
+    generateDeterministicUuid,
     isValidUuid,
     isoNow,
     validateName,

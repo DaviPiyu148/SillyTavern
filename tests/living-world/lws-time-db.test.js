@@ -7,7 +7,7 @@ describe('LWS Migration 005: Time, Schedules, and Routines Database Integrity', 
     let db;
 
     beforeEach(() => {
-        db = createTestDb();
+        db = createTestDb(5);
     });
 
     afterEach(() => {
@@ -31,7 +31,7 @@ describe('LWS Migration 005: Time, Schedules, and Routines Database Integrity', 
         expect(Number(legacyDb.pragma('user_version', { simple: true }))).toBe(4);
 
         // Run migrations to apply migration 005
-        const updatedVersion = runMigrations(legacyDb);
+        const updatedVersion = runMigrations(legacyDb, 5);
         expect(updatedVersion).toBe(5);
         expect(Number(legacyDb.pragma('user_version', { simple: true }))).toBe(5);
 

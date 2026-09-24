@@ -94,4 +94,11 @@ export * from './time/routines.js';
 export * from './time/scheduled-events.js';
 export * from './time/travel.js';
 export * from './time/time-advance.js';
+export * from './perception/spatial.js';
+export * from './perception/perceptions.js';
+export * from './perception/knowledge.js';
+export * from './perception/memories.js';
+export * from './perception/memory-retrieval.js';
+export * from './perception/beliefs.js';
+export * from './perception/camera.js';
 

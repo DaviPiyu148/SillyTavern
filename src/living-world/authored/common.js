@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { LwsValidationError, LwsNotFoundError } from '../errors.js';
 
 export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -18,6 +18,25 @@ export function isValidUuid(val) {
  */
 export function generateUuid() {
     return randomUUID();
+}
+
+/**
+ * Generates a deterministic UUID format string from a namespace and parts.
+ *
+ * @param {string} namespace
+ * @param {...string} parts
+ * @returns {string} Deterministic UUID
+ */
+export function generateDeterministicUuid(namespace, ...parts) {
+    const raw = `${namespace}:${parts.join(':')}`;
+    const hash = createHash('sha256').update(raw).digest('hex');
+    return [
+        hash.slice(0, 8),
+        hash.slice(8, 12),
+        `4${hash.slice(13, 16)}`,
+        `8${hash.slice(17, 20)}`,
+        hash.slice(20, 32),
+    ].join('-');
 }
 
 /**

@@ -156,6 +156,40 @@ Schema changes require explicit, versioned migrations and verification.
     2. `idx_lws_routines_lookup`: Fast routine lookup by character, day of week, and start time (`lws_simulation_character_routines(simulation_character_id, day_of_week, start_time) WHERE deleted_at IS NULL`).
     3. `idx_lws_sched_events_sim_time`: Fast chronological lookup of pending scheduled events (`lws_scheduled_events(simulation_id, scheduled_fictional_time) WHERE status = 'pending'`).
     4. `idx_lws_sched_events_sim_status`: Filtering of scheduled events by simulation and status (`lws_scheduled_events(simulation_id, status)`).
-  - Cumulative database inventory: Exactly 16 tables (reconciles the frozen plan Section 14.2 text erratum stating "15 tables (13 from Phases 1–4 + 2 new)", which omitted `lws_meta` or undercounted the 14 verified Phase 1–4 tables; 14 prior tables + 2 Phase 5 tables = 16 total tables), exactly 24 triggers on Phase 4/5 tables, and exactly 11 indexes.
-  - Pure in-memory zero-SQL replay engine expanded to reduce and assert 100% attribute parity across all 6 Phase 5 events, character activities, travel runtime states, routines, and scheduled events with zero SQL.
+- `006_perception_and_knowledge`: Perception, knowledge, memory, beliefs, and camera observation (`user_version = 6`):
+  - Exactly 5 new tables:
+    1. `lws_event_perceptions`: Immutable character event perception ledger (`id`, `lws_id`, `simulation_id`, `event_id`, `simulation_character_id`, `sensory_modality`, `perceived_at_fictional_time`, `created_at`).
+    2. `lws_character_knowledge`: Subjective character knowledge facts (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `fact_key`, `content`, `source_channel`, `source_character_id`, `source_event_id`, `fictional_time_acquired`, `created_at`, `updated_at`, `deleted_at`).
+    3. `lws_character_memories`: Character episodic/semantic memories (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `summary`, `details`, `memory_type`, `event_id`, `fictional_time`, `emotional_salience`, `importance`, `confidence`, `status`, `tags`, `source_channel`, `created_at`, `updated_at`, `deleted_at`).
+    4. `lws_character_beliefs`: Character beliefs and suspicions (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `subject_key`, `belief_type`, `statement`, `confidence`, `source_basis`, `causal_event_id`, `created_at`, `updated_at`, `deleted_at`).
+    5. `lws_simulation_cameras`: Multi-mode simulation camera states (`id`, `lws_id`, `simulation_id`, `camera_name`, `mode`, `target_character_id`, `target_location_id`, `created_at`, `updated_at`).
+  - Exactly 15 Phase 6 triggers (39 cumulative across system):
+    1. `trg_lws_perceptions_immutable`: Prohibits direct updates on `lws_event_perceptions`.
+    2. `trg_lws_perceptions_no_delete`: Prohibits direct physical `DELETE` on `lws_event_perceptions`.
+    3. `trg_lws_perceptions_same_sim`: Validates event and character belong to perception simulation.
+    4. `trg_lws_knowledge_identity_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on knowledge.
+    5. `trg_lws_knowledge_insert_integrity`: Validates character, source character, and source event belong to simulation on knowledge insertion.
+    6. `trg_lws_knowledge_no_delete`: Prohibits direct physical `DELETE` on knowledge (requires soft-delete).
+    7. `trg_lws_memories_identity_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on memories.
+    8. `trg_lws_memories_insert_integrity`: Validates character and event reference belong to simulation on memory insertion.
+    9. `trg_lws_memories_no_delete`: Prohibits direct physical `DELETE` on memories (requires soft-delete).
+    10. `trg_lws_beliefs_identity_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on beliefs.
+    11. `trg_lws_beliefs_insert_integrity`: Validates character and causal event reference belong to simulation on belief insertion.
+    12. `trg_lws_beliefs_no_delete`: Prohibits direct physical `DELETE` on beliefs (requires soft-delete).
+    13. `trg_lws_cameras_identity_immutable`: Enforces immutability of `simulation_id` and `camera_name` on `lws_simulation_cameras`.
+    14. `trg_lws_cameras_insert_integrity`: Validates mode/target invariants and cross-simulation lineage on camera insertion.
+    15. `trg_lws_cameras_update_integrity`: Validates mode/target invariants and cross-simulation lineage on camera update.
+  - Exactly 10 new indexes (21 cumulative across Phase 4–6 tables):
+    1. `idx_lws_perceptions_event`: Index on `lws_event_perceptions(event_id, simulation_character_id)`.
+    2. `idx_lws_perceptions_char_time`: Index on `lws_event_perceptions(simulation_character_id, perceived_at_fictional_time)`.
+    3. `idx_lws_knowledge_char_lookup`: Index on `lws_character_knowledge(simulation_character_id, fact_key) WHERE deleted_at IS NULL`.
+    4. `idx_lws_knowledge_sim_char`: Index on `lws_character_knowledge(simulation_id, simulation_character_id) WHERE deleted_at IS NULL`.
+    5. `idx_lws_memories_char_time`: Index on `lws_character_memories(simulation_character_id, fictional_time DESC) WHERE deleted_at IS NULL`.
+    6. `idx_lws_memories_char_salience`: Index on `lws_character_memories(simulation_character_id, emotional_salience DESC) WHERE deleted_at IS NULL`.
+    7. `idx_lws_memories_sim_char`: Index on `lws_character_memories(simulation_id, simulation_character_id) WHERE deleted_at IS NULL`.
+    8. `idx_lws_beliefs_lookup`: Index on `lws_character_beliefs(simulation_character_id, subject_key) WHERE deleted_at IS NULL`.
+    9. `idx_lws_beliefs_sim_char`: Index on `lws_character_beliefs(simulation_id, simulation_character_id) WHERE deleted_at IS NULL`.
+    10. `idx_lws_cameras_sim`: Index on `lws_simulation_cameras(simulation_id, camera_name)`.
+  - Cumulative database inventory: Exactly 21 tables (16 prior tables + 5 Phase 6 tables = 21 total tables), exactly 39 triggers on Phase 4–6 tables, and exactly 21 indexes.
+  - Pure in-memory zero-SQL replay engine expanded to fold all Phase 6 events, perceptions, knowledge, memories, beliefs, and camera state with 100% attribute parity using deterministic UUID derivation.
 

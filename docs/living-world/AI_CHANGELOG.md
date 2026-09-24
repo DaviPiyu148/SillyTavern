@@ -30,6 +30,123 @@ Known limitations or implications.
 
 ---
 
+## 2026-09-24 — Phase 6: Perception, Knowledge, Memory, and Observation
+
+Status: IMPLEMENTED / VERIFIED
+
+### Change
+Implemented authoritative character perception, subjective knowledge, memory formation with exponential decay retrieval, beliefs/suspicions, simulation camera perspectives, deterministic identity derivation, pure zero-SQL replay, and REST transport for Living World Simulator (LWS):
+
+1. Created database migration `006_perception_and_knowledge.js` elevating schema version to `PRAGMA user_version = 6`:
+   - Exactly 5 new tables: `lws_event_perceptions`, `lws_character_knowledge`, `lws_character_memories`, `lws_character_beliefs`, `lws_simulation_cameras`.
+    - Exactly 15 Phase 6 triggers (39 cumulative across system):
+      1. `trg_lws_perceptions_immutable`: Prohibits direct updates on `lws_event_perceptions`.
+      2. `trg_lws_perceptions_no_delete`: Prohibits direct physical DELETE on `lws_event_perceptions`.
+      3. `trg_lws_perceptions_same_sim`: Validates event and character belong to perception simulation.
+      4. `trg_lws_knowledge_identity_immutable`: Enforces immutability of simulation_id and simulation_character_id on knowledge.
+      5. `trg_lws_knowledge_insert_integrity`: Validates character, source character, and source event belong to simulation on knowledge insertion.
+      6. `trg_lws_knowledge_no_delete`: Prohibits direct physical DELETE on knowledge (requires soft-delete).
+      7. `trg_lws_memories_identity_immutable`: Enforces immutability of simulation_id and simulation_character_id on memories.
+      8. `trg_lws_memories_insert_integrity`: Validates character and event reference belong to simulation on memory insertion.
+      9. `trg_lws_memories_no_delete`: Prohibits direct physical DELETE on memories (requires soft-delete).
+      10. `trg_lws_beliefs_identity_immutable`: Enforces immutability of simulation_id and simulation_character_id on beliefs.
+      11. `trg_lws_beliefs_insert_integrity`: Validates character and causal event reference belong to simulation on belief insertion.
+      12. `trg_lws_beliefs_no_delete`: Prohibits direct physical DELETE on beliefs (requires soft-delete).
+      13. `trg_lws_cameras_identity_immutable`: Enforces immutability of simulation_id and camera_name on `lws_simulation_cameras`.
+      14. `trg_lws_cameras_insert_integrity`: Validates mode/target invariants and cross-simulation lineage on camera insertion.
+      15. `trg_lws_cameras_update_integrity`: Validates mode/target invariants and cross-simulation lineage on camera update.
+    - Exactly 10 new indexes: `idx_lws_perceptions_event`, `idx_lws_perceptions_char_time`, `idx_lws_knowledge_char_lookup`, `idx_lws_knowledge_sim_char`, `idx_lws_memories_char_time`, `idx_lws_memories_char_salience`, `idx_lws_memories_sim_char`, `idx_lws_beliefs_lookup`, `idx_lws_beliefs_sim_char`, `idx_lws_cameras_sim`.
+   - Cumulative database inventory: Exactly 21 tables, 39 triggers on Phase 4–6 tables, 21 indexes.
+
+2. Implemented Spatial Sensory Perception Engine (`src/living-world/perception/spatial.js`, `perceptions.js`):
+   - Hierarchical tree LCA distance calculation evaluating physical reachability across tree hierarchy.
+   - Option A canonical modality precedence: $\text{tactile} > \text{visual} > \text{auditory} > \text{olfactory}$.
+   - Strictly single-modality persistence per `(event, character)`; storage of `omniscience_director` strictly forbidden in `lws_event_perceptions`.
+   - Atomic integration inside `internalCommitEvent`.
+
+3. Implemented Subjective Knowledge & Causal Evidence (`src/living-world/perception/knowledge.js`):
+   - Knowledge extraction from event payloads (`COMMUNICATE`, `OBSERVE`, `INTERACT_OBJECT`, `DIRECTOR_MODIFY_STATE`).
+   - Strict preservation of causal provenance (`source_channel`, `source_character_id`, `source_event_id`, `fictional_time_acquired`).
+   - Active filtering and soft-delete capabilities.
+
+4. Implemented Character Memories & Relevance Retrieval (`src/living-world/perception/memories.js`, `memory-retrieval.js`):
+   - Episodic, semantic, and backstory memory creation linked to causal events.
+   - Candidate pre-filter bounded to $N \le 100$ records via index `idx_lws_memories_char_salience`.
+   - Multi-factor relevance scoring with frozen 7-day recency decay ($\tau = 604800\,\text{s}$):
+     $$S_{\text{total}} = 0.25 \cdot \text{Recency} + 0.25 \cdot \text{Salience} + 0.20 \cdot \text{Importance} + 0.30 \cdot \text{Context}$$
+     where $\text{Recency} = \frac{1}{1 + \frac{\Delta t}{604800}}$.
+   - Deterministic tie-breaking: $S_{\text{total}}$ DESC, $M.\text{fictional\_time}$ DESC, $M.\text{lws\_id}$ ASC.
+   - Mutable patching for allowed fields only (`summary`, `details`, `emotional_salience`, `importance`, `confidence`, `status`, `tags`, `deleted_at`), preserving immutable causal fields.
+
+5. Implemented Character Beliefs & Suspicions (`src/living-world/perception/beliefs.js`):
+   - Persistent schema: `subject_key`, `belief_type`, `statement`, `confidence` ($1 \le \text{confidence} \le 100$), `source_basis`, `causal_event_id`, `deleted_at`.
+   - Authoritative mutation via `DIRECTOR_MODIFY_STATE` and event payloads.
+
+6. Implemented Simulation Cameras & Perspectives (`src/living-world/perception/camera.js`):
+   - Camera tracking with modes: `follow_character`, `observe_location`, `god_view`.
+   - Privileged Observer Perspective (`GET /api/living-world/simulations/:simLwsId/observer/perspective`): Omniscient ground truth directly from simulation state.
+   - Subjective Character Perspective (`GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/perspective`): Filtered by perceptions, active knowledge, recent memories, and current beliefs.
+
+7. Deterministic Derived Identities & Pure Zero-SQL Replay (`src/living-world/events/replay.js`):
+   - Deterministic UUIDs generated via SHA-256 namespace hashing `generateDeterministicUuid(namespace, ...parts)`.
+   - `simulationReducer` reconstructs perceptions, knowledge, memories, beliefs, and camera state in pure memory with zero SQL queries.
+   - `verifySimulationParity` proves 100% attribute parity with database state.
+
+8. Mounted Exactly 13 REST Endpoints (`src/endpoints/living-world.js`):
+   - Full REST transport with input validation, error handling, and authorization matching the frozen Phase 6 API table.
+
+### Reason
+Fulfill Phase 6 of the Living World Simulator plan: implement non-omniscient character perception, subjective knowledge, memory formation with decay retrieval, beliefs/suspicions, simulation camera perspectives, privileged Observer perspective, and pure zero-SQL replay.
+
+### Files/modules
+- `src/living-world/authored/common.js`
+- `src/living-world/simulations/common.js`
+- `src/living-world/migrations/006_perception_and_knowledge.js`
+- `src/living-world/migrations/index.js`
+- `src/living-world/perception/spatial.js`
+- `src/living-world/perception/perceptions.js`
+- `src/living-world/perception/knowledge.js`
+- `src/living-world/perception/memories.js`
+- `src/living-world/perception/memory-retrieval.js`
+- `src/living-world/perception/beliefs.js`
+- `src/living-world/perception/camera.js`
+- `src/living-world/events/taxonomy.js`
+- `src/living-world/events/events.js`
+- `src/living-world/events/state-transitions.js`
+- `src/living-world/events/replay.js`
+- `src/endpoints/living-world.js`
+- `src/living-world/index.js`
+- `docs/living-world/decisions/ADR-014-perception-knowledge-memory-and-observation.md`
+- `docs/living-world/PROJECT_STATE.md`
+- `docs/living-world/PERSISTENCE.md`
+- `tests/living-world/lws-perception-db.test.js`
+- `tests/living-world/lws-perception-spatial.test.js`
+- `tests/living-world/lws-knowledge.test.js`
+- `tests/living-world/lws-memories.test.js`
+- `tests/living-world/lws-beliefs.test.js`
+- `tests/living-world/lws-camera-observer.test.js`
+- `tests/living-world/lws-perception-replay.test.js`
+- `tests/living-world/lws-perception-api.test.js`
+
+### Architecture
+- Closed 29-event taxonomy preserved with zero additions.
+- Database version advances to `PRAGMA user_version = 6` with 5 new tables, 15 triggers, and 10 indexes.
+- Option A canonical modality precedence enforced at runtime and storage.
+- Non-omniscient character perspective vs privileged omniscient Observer perspective.
+- 100% attribute parity verified between database execution and in-memory replay.
+
+### Tests
+- Targeted Phase 6 test suites: 8 suites / 42 tests passing.
+- Cumulative LWS test suites: 39 suites / 284 tests passing.
+- Full repository test suites: 58 suites / 695 tests passing.
+- Root ESLint: 0 errors.
+- Tests ESLint: 0 errors.
+
+### Notes
+- Autonomous character cognition, deliberation, and goal pursuit (Tier 3 arbitration) remain designed for Phase 7.
+
+---
+
 ## 2026-09-24 — Phase 5: Fictional Time, Schedules, Routines, and Travel
 
 Status: IMPLEMENTED / VERIFIED

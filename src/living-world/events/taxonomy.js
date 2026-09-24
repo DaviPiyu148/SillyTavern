@@ -93,6 +93,9 @@ export const STATEFUL_EVENTS = Object.freeze(new Set([
     EVENT_TYPES.SUPERSEDE_SCHEDULED_EVENT,
     EVENT_TYPES.TRIGGER_SCHEDULED_EVENT,
     EVENT_TYPES.UPDATE_CHARACTER_ROUTINE,
+    EVENT_TYPES.COMMUNICATE,
+    EVENT_TYPES.OBSERVE,
+    EVENT_TYPES.INTERACT_OBJECT,
 ]));
 
 export const PROVENANCE_TYPES = Object.freeze([
@@ -255,6 +258,12 @@ export function validateProposalSchema(proposal) {
             if (!proposal.location_id) {
                 throw new LwsValidationError('location_id is required for COMMUNICATE', ['location_id']);
             }
+            if (payload.facts !== undefined && !Array.isArray(payload.facts)) {
+                throw new LwsValidationError('payload.facts must be an array', ['facts']);
+            }
+            if (payload.beliefs !== undefined && !Array.isArray(payload.beliefs)) {
+                throw new LwsValidationError('payload.beliefs must be an array', ['beliefs']);
+            }
             break;
 
         case EVENT_TYPES.TRANSFER_ITEM:
@@ -277,6 +286,15 @@ export function validateProposalSchema(proposal) {
             }
             if (!proposal.location_id) {
                 throw new LwsValidationError(`location_id is required for ${proposal.event_type}`, ['location_id']);
+            }
+            if (payload.observed_facts !== undefined && !Array.isArray(payload.observed_facts)) {
+                throw new LwsValidationError('payload.observed_facts must be an array', ['observed_facts']);
+            }
+            if (payload.discovered_facts !== undefined && !Array.isArray(payload.discovered_facts)) {
+                throw new LwsValidationError('payload.discovered_facts must be an array', ['discovered_facts']);
+            }
+            if (payload.beliefs !== undefined && !Array.isArray(payload.beliefs)) {
+                throw new LwsValidationError('payload.beliefs must be an array', ['beliefs']);
             }
             break;
 

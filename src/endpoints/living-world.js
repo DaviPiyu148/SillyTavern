@@ -69,6 +69,17 @@ import {
     validateScheduledEventInput,
     validateRoutineBlock,
     ensureActiveSimulation,
+    getEventPerceptions,
+    getCharacterPerceptions,
+    listCharacterKnowledge,
+    getCharacterFact,
+    listCharacterMemories,
+    retrieveCharacterMemories,
+    listCharacterBeliefs,
+    getCharacterBelief,
+    getSimulationCamera,
+    buildSubjectivePerspective,
+    buildObserverPerspective,
     EVENT_TYPES,
     getDb,
 } from '../living-world/index.js';
@@ -1086,5 +1097,276 @@ router.get('/simulations/:simLwsId/characters/:charLwsId/routines', (req, res) =
     }
 });
 
-export { router };
+// ============================================================================
+// Phase 6: Perception, Knowledge, Memory, Beliefs, Camera & Perspectives
+// Exactly 13 Phase 6 Endpoints
+// ============================================================================
 
+// 1. GET /simulations/:simLwsId/events/:eventLwsId/perceptions
+router.get('/simulations/:simLwsId/events/:eventLwsId/perceptions', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, eventLwsId: req.params.eventLwsId }, res)) return;
+    try {
+        const db = getDb();
+        ensureActiveSimulation(db, req.params.simLwsId);
+        const perceptions = getEventPerceptions(db, req.params.eventLwsId);
+        return res.json({ perceptions });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/events/:eventLwsId/perceptions');
+    }
+});
+
+// 2. GET /simulations/:simLwsId/characters/:charLwsId/perceptions
+router.get('/simulations/:simLwsId/characters/:charLwsId/perceptions', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        ensureActiveSimulation(db, req.params.simLwsId);
+        const perceptions = getCharacterPerceptions(db, req.params.charLwsId, {
+            modality: req.query.modality,
+            limit: req.query.limit,
+        });
+        return res.json({ perceptions });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/perceptions');
+    }
+});
+
+// 3. GET /simulations/:simLwsId/characters/:charLwsId/knowledge
+router.get('/simulations/:simLwsId/characters/:charLwsId/knowledge', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        ensureActiveSimulation(db, req.params.simLwsId);
+        const knowledge = listCharacterKnowledge(db, req.params.charLwsId, {
+            source_channel: req.query.source_channel,
+            limit: req.query.limit,
+        });
+        return res.json({ knowledge });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/knowledge');
+    }
+});
+
+// 4. GET /simulations/:simLwsId/characters/:charLwsId/knowledge/:factKey
+router.get('/simulations/:simLwsId/characters/:charLwsId/knowledge/:factKey', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        ensureActiveSimulation(db, req.params.simLwsId);
+        const fact = getCharacterFact(db, req.params.charLwsId, req.params.factKey);
+        return res.json(fact);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/knowledge/:factKey');
+    }
+});
+
+// 5. POST /simulations/:simLwsId/characters/:charLwsId/knowledge
+router.post('/simulations/:simLwsId/characters/:charLwsId/knowledge', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+
+        if (!req.body?.fact_key || typeof req.body.fact_key !== 'string') {
+            throw new LwsValidationError('fact_key is required', ['fact_key']);
+        }
+        if (!req.body?.content || typeof req.body.content !== 'string') {
+            throw new LwsValidationError('content is required', ['content']);
+        }
+
+        commitEvent(req.params.simLwsId, {
+            event_type: EVENT_TYPES.DIRECTOR_MODIFY_STATE,
+            fictional_time: sim.current_fictional_time,
+            provenance: 'director',
+            payload: {
+                target_id: req.params.charLwsId,
+                facts: [{
+                    fact_key: req.body.fact_key,
+                    content: req.body.content,
+                    source_channel: req.body.source_channel || 'director_injection',
+                }],
+            },
+        }, { isDedicatedRoute: true, isAdmin: true });
+
+        const fact = getCharacterFact(db, req.params.charLwsId, req.body.fact_key);
+        return res.status(201).json(fact);
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/characters/:charLwsId/knowledge');
+    }
+});
+
+// 6. GET /simulations/:simLwsId/characters/:charLwsId/memories
+router.get('/simulations/:simLwsId/characters/:charLwsId/memories', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        ensureActiveSimulation(db, req.params.simLwsId);
+        const memories = listCharacterMemories(db, req.params.charLwsId, {
+            min_salience: req.query.min_salience,
+            memory_type: req.query.memory_type,
+            status: req.query.status,
+            limit: req.query.limit,
+        });
+        return res.json({ memories });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/memories');
+    }
+});
+
+// 7. GET /simulations/:simLwsId/characters/:charLwsId/memories/retrieve
+router.get('/simulations/:simLwsId/characters/:charLwsId/memories/retrieve', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        let queryTags = req.query.query_tags;
+        if (typeof queryTags === 'string') {
+            queryTags = queryTags.split(',').map(t => t.trim()).filter(Boolean);
+        }
+        const memories = retrieveCharacterMemories(db, req.params.charLwsId, {
+            currentFictionalTime: req.query.current_fictional_time || req.query.currentFictionalTime || sim.current_fictional_time,
+            limit: req.query.limit,
+            min_salience: req.query.min_salience,
+            query_tags: queryTags,
+            query_text: req.query.query_text,
+            query: req.query.query,
+        });
+        return res.json({ memories });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/memories/retrieve');
+    }
+});
+
+// 8. GET /simulations/:simLwsId/characters/:charLwsId/beliefs
+router.get('/simulations/:simLwsId/characters/:charLwsId/beliefs', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        ensureActiveSimulation(db, req.params.simLwsId);
+        const beliefs = listCharacterBeliefs(db, req.params.charLwsId, {
+            belief_type: req.query.belief_type,
+            limit: req.query.limit,
+        });
+        return res.json({ beliefs });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/beliefs');
+    }
+});
+
+// 9. PUT /simulations/:simLwsId/characters/:charLwsId/beliefs/:subjectKey
+router.put('/simulations/:simLwsId/characters/:charLwsId/beliefs/:subjectKey', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+
+        const subjectKey = req.params.subjectKey;
+        if (!subjectKey || typeof subjectKey !== 'string') {
+            throw new LwsValidationError('subjectKey is required', ['subjectKey']);
+        }
+
+        const body = req.body || {};
+        commitEvent(req.params.simLwsId, {
+            event_type: EVENT_TYPES.DIRECTOR_MODIFY_STATE,
+            actor_character_id: req.params.charLwsId,
+            fictional_time: sim.current_fictional_time,
+            provenance: 'director',
+            payload: {
+                target: 'character_belief',
+                target_id: req.params.charLwsId,
+                subject_key: subjectKey,
+                statement: body.statement ?? body.object_value ?? '',
+                belief_type: body.belief_type || 'belief',
+                confidence: body.confidence ?? 50,
+                source_basis: body.source_basis || 'director_injection',
+                beliefs: [{
+                    subject_key: subjectKey,
+                    statement: body.statement ?? body.object_value ?? '',
+                    belief_type: body.belief_type || 'belief',
+                    confidence: body.confidence ?? 50,
+                    source_basis: body.source_basis || 'director_injection',
+                }],
+            },
+        }, { isDedicatedRoute: true, isAdmin: true });
+
+        const belief = getCharacterBelief(db, req.params.charLwsId, subjectKey);
+        return res.json(belief);
+    } catch (err) {
+        return handleRouteError(err, res, 'PUT /simulations/:simLwsId/characters/:charLwsId/beliefs/:subjectKey');
+    }
+});
+
+// 10. GET /simulations/:simLwsId/camera
+router.get('/simulations/:simLwsId/camera', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const db = getDb();
+        ensureActiveSimulation(db, req.params.simLwsId);
+        const camera = getSimulationCamera(db, req.params.simLwsId, req.query.camera_name || 'default');
+        return res.json(camera);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/camera');
+    }
+});
+
+// 11. POST /simulations/:simLwsId/camera
+router.post('/simulations/:simLwsId/camera', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+
+        commitEvent(req.params.simLwsId, {
+            event_type: EVENT_TYPES.DIRECTOR_MODIFY_STATE,
+            fictional_time: sim.current_fictional_time,
+            provenance: 'director',
+            payload: {
+                camera: req.body || {},
+            },
+        }, { isDedicatedRoute: true, isAdmin: true });
+
+        const camera = getSimulationCamera(db, req.params.simLwsId, req.body?.camera_name || 'default');
+        return res.json(camera);
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/camera');
+    }
+});
+
+// 12. GET /simulations/:simLwsId/characters/:charLwsId/perspective
+router.get('/simulations/:simLwsId/characters/:charLwsId/perspective', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const perspective = buildSubjectivePerspective(db, req.params.simLwsId, req.params.charLwsId);
+        return res.json(perspective);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/perspective');
+    }
+});
+
+// 13. GET /simulations/:simLwsId/observer/perspective
+router.get('/simulations/:simLwsId/observer/perspective', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const perspective = buildObserverPerspective(db, req.params.simLwsId, req.query.camera_name || 'default');
+        return res.json(perspective);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/observer/perspective');
+    }
+});
+
+export { router };

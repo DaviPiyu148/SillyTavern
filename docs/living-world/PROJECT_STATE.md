@@ -53,8 +53,8 @@ Travel consumes fictional time; older instantaneous-travel interpretation is sup
 | **Phase 2** | **Authored World and Character Model** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 002 applied (`PRAGMA user_version = 2`); exactly 9 authored tables, 12 DB triggers (cross-world relationship integrity & `world_id` immutability), 5 partial indexes; 7 authored domain services; 40+ REST endpoints under `/api/living-world/worlds`; ST V2 character mapped subset; full unit and integration test suites passing (32/32 suites, 499/499 tests); linters clean (0 errors). |
 | **Phase 3** | **Simulation Runtime and Persistence** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 003 applied (`PRAGMA user_version = 3`); exactly 2 runtime tables (`lws_simulations`, `lws_simulation_characters`), 10 DB triggers, 5 indexes; Simulation & SimulationCharacter domain services; scenario instantiation with atomic roster snapshotting; Two-Simulation Isolation proven; status transition matrix; semantic calendar date validation; soft-deleted location assignment guards; 10 authenticated REST endpoints; full test suites passing (37/37 suites, 543/543 tests); linters clean (0 errors). |
 | **Phase 4** | **Events, Authority, and State Transitions** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 004 applied (`PRAGMA user_version = 4`); tables `lws_events` and `lws_narrative_turns`; exactly 16 DB triggers; exactly 7 DB indexes; closed 29-event taxonomy (23 active Phase 4, 6 deferred Phase 5, 13 stateful); 4-stage authority pipeline; server-enforced provenance; Phase 3 mutation bypasses eliminated; two-transaction savepoint execution with durable rejected-turn persistence; pure in-memory zero-SQL replay engine (`replaySimulation`) with 100% parity verification (`verifySimulationParity`); 7 REST endpoints; 24 test suites / 184 tests passing; linters clean (0 errors); ADR-012 authored. |
-| **Phase 5** | **Fictional Time, Schedules, Routines, and Travel** | **IMPLEMENTED & VERIFIED** | Migration 005 applied (`PRAGMA user_version = 5`); exactly 2 new tables (`lws_simulation_character_routines`, `lws_scheduled_events`); exactly 9 Phase 5 DB triggers (1 evolved monotonic clock trigger + 4 routine triggers + 4 scheduled-event triggers; 24 cumulative triggers across system); exactly 4 new indexes (11 cumulative across Phase 4 & 5 tables); closed 29-event taxonomy fully activated (all 29 active, 0 deferred, 19 stateful); discrete timeline resolution engine discovering critical sub-events in $(T_{\text{start}}, T_{\text{target}}]$; 6-tier routine arbitration with severe condition suspension; tree LCA spatial travel with planned departures ($T_{\text{dep}} = T_{\text{start}} - \text{duration}$); reciprocal supersession integrity enforced at DB boundary; One Authoritative Path policy (`POST /events` rejects Phase 5 events with HTTP 422 `DEDICATED_ROUTE_REQUIRED`); pure zero-SQL in-memory replay with 100% parity verification; 8 new REST endpoints; targeted test suite passing (31/31 suites, 241/241 tests); full repository unit suite passing (50/50 suites, 652/652 tests); linters clean (0 errors); ADR-013 authored. |
-| Phase 6 | Perception, Knowledge, Memory, and Observation | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
+| **Phase 5** | **Fictional Time, Schedules, Routines, and Travel** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 005 applied (`PRAGMA user_version = 5`); exactly 2 new tables (`lws_simulation_character_routines`, `lws_scheduled_events`); exactly 9 Phase 5 DB triggers (1 evolved monotonic clock trigger + 4 routine triggers + 4 scheduled-event triggers; 24 cumulative triggers across system); exactly 4 new indexes (11 cumulative across Phase 4 & 5 tables); closed 29-event taxonomy fully activated (all 29 active, 0 deferred, 19 stateful); discrete timeline resolution engine discovering critical sub-events in $(T_{\text{start}}, T_{\text{target}}]$; 6-tier routine arbitration with severe condition suspension; tree LCA spatial travel with planned departures ($T_{\text{dep}} = T_{\text{start}} - \text{duration}$); reciprocal supersession integrity enforced at DB boundary; One Authoritative Path policy (`POST /events` rejects Phase 5 events with HTTP 422 `DEDICATED_ROUTE_REQUIRED`); pure zero-SQL in-memory replay with 100% parity verification; 8 new REST endpoints; targeted test suite passing (31/31 suites, 241/241 tests); full repository unit suite passing (50/50 suites, 652/652 tests); linters clean (0 errors); ADR-013 authored. |
+| **Phase 6** | **Perception, Knowledge, Memory, and Observation** | **IMPLEMENTED & VERIFIED** | Migration 006 applied (`PRAGMA user_version = 6`); exactly 5 new tables (`lws_event_perceptions`, `lws_character_knowledge`, `lws_character_memories`, `lws_character_beliefs`, `lws_simulation_cameras`); exactly 15 Phase 6 DB triggers (39 cumulative across system); exactly 10 new indexes (21 cumulative across Phase 4–6 tables); spatial sensory perception engine with tree LCA distance and Option A canonical modality precedence (`tactile > visual > auditory > olfactory`); subjective character knowledge acquisition with deterministic provenance tracking; character memories with relevance-bounded retrieval ($N \le 100$, $\tau = 604800\,\text{s}$, exact weights $0.25/0.25/0.20/0.30$); character beliefs ($1 \le \text{confidence} \le 100$) with `DIRECTOR_MODIFY_STATE` mutation support; multi-mode simulation cameras (`follow_character`, `observe_location`, `god_view`) with privileged Observer Perspective (`GET /observer/perspective`) vs non-omniscient character perspective; pure zero-SQL in-memory replay parity across all Phase 6 tables using deterministic SHA-256 UUID derivation; exactly 13 Phase 6 REST endpoints; targeted test suite passing (39/39 suites, 285/285 tests); full repository unit suite passing (58/58 suites, 696/696 tests); linters clean (0 errors); ADR-014 authored. |
 | Phase 7 | Character Cognition and Decision Making | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
 | Phase 8 | Social Systems and Character Development | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
 | Phase 9 | Living World, Population, Environment, and Emergence | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
@@ -215,8 +215,69 @@ Phase 5 delivers fictional time progression, character routine arbitration, spat
 - **REST API (8 New Endpoints)**:
   - Mounts time advance (`POST .../time-advance`), routine management (`GET/PUT .../routines`), scheduled event lifecycle (`POST .../scheduled-events`, `GET .../scheduled-events`, `GET .../scheduled-events/:id`, `POST .../scheduled-events/:id/cancel`, `POST .../scheduled-events/:id/supersede`).
 
-#### 2. Future Scope Distinction (Phase 6+)
-- **Phase 6 Future Scope**: Perception, knowledge, memory, and observation subsystems. Filtering character knowledge by physical location and observation boundaries.
+#### 2. Scope Distinction from Prior Phases
+- Phase 5 activated the temporal runtime, 6-tier routines, and travel mechanics. Character perception, subjective knowledge, memory formation, beliefs, and camera perspectives remained designed until Phase 6.
+
+### Phase 6 Implementation Details and Scope Distinction
+
+Phase 6 establishes perception, knowledge, memory, beliefs, and observation subsystems in SQLite under migration `006_perception_and_knowledge` (`PRAGMA user_version = 6`).
+
+#### 1. Implemented Phase 6 Scope
+- **Schema & Migrations (Migration 006)**:
+  - `lws_event_perceptions`: Immutable character event perception ledger with sensory modalities.
+  - `lws_character_knowledge`: Subjective character knowledge facts with causal provenance and soft deletion.
+  - `lws_character_memories`: Character episodic/semantic memory records with emotional salience, importance, confidence, status, tags, and soft deletion.
+  - `lws_character_beliefs`: Character beliefs and suspicions with confidence ($1..100$), source basis, and causal event linking.
+  - `lws_simulation_cameras`: Multi-mode simulation camera states (`follow_character`, `observe_location`, `god_view`) with immutable camera names and simulation scoping.
+- **Database Boundary Hardening (Cumulative 39 Triggers)**:
+  - Exactly 15 Phase 6 trigger objects:
+    1. `trg_lws_perceptions_immutable`: Prohibits direct updates on `lws_event_perceptions`.
+    2. `trg_lws_perceptions_no_delete`: Prohibits direct physical `DELETE` on `lws_event_perceptions`.
+    3. `trg_lws_perceptions_same_sim`: Validates event and character belong to perception simulation.
+    4. `trg_lws_knowledge_identity_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on knowledge.
+    5. `trg_lws_knowledge_insert_integrity`: Validates character, source character, and source event belong to simulation on knowledge insertion.
+    6. `trg_lws_knowledge_no_delete`: Prohibits direct physical `DELETE` on knowledge (requires soft-delete).
+    7. `trg_lws_memories_identity_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on memories.
+    8. `trg_lws_memories_insert_integrity`: Validates character and event reference belong to simulation on memory insertion.
+    9. `trg_lws_memories_no_delete`: Prohibits direct physical `DELETE` on memories (requires soft-delete).
+    10. `trg_lws_beliefs_identity_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on beliefs.
+    11. `trg_lws_beliefs_insert_integrity`: Validates character and causal event reference belong to simulation on belief insertion.
+    12. `trg_lws_beliefs_no_delete`: Prohibits direct physical `DELETE` on beliefs (requires soft-delete).
+    13. `trg_lws_cameras_identity_immutable`: Enforces immutability of `simulation_id` and `camera_name` on `lws_simulation_cameras`.
+    14. `trg_lws_cameras_insert_integrity`: Validates mode/target invariants and cross-simulation lineage on camera insertion.
+    15. `trg_lws_cameras_update_integrity`: Validates mode/target invariants and cross-simulation lineage on camera update.
+- **Indexes (Cumulative 21 Indexes)**:
+  - Exactly 10 Phase 6 indexes: `idx_lws_perceptions_event`, `idx_lws_perceptions_char_time`, `idx_lws_knowledge_char_lookup`, `idx_lws_knowledge_sim_char`, `idx_lws_memories_char_time`, `idx_lws_memories_char_salience`, `idx_lws_memories_sim_char`, `idx_lws_beliefs_lookup`, `idx_lws_beliefs_sim_char`, `idx_lws_cameras_sim`.
+- **Spatial Sensory Perception Engine**:
+  - Tree LCA distance calculation evaluating physical reachability across tree hierarchy.
+  - Option A canonical modality precedence: $\text{tactile} > \text{visual} > \text{auditory} > \text{olfactory}$.
+  - Strictly single-modality persistence per `(event, character)`; storage of `omniscience_director` strictly forbidden in `lws_event_perceptions`.
+- **Subjective Knowledge & Causal Evidence**:
+  - Knowledge extraction from event payloads (`COMMUNICATE`, `OBSERVE`, `INTERACT_OBJECT`, `DIRECTOR_MODIFY_STATE`).
+  - Strict preservation of causal provenance (`source_channel`, `source_character_id`, `source_event_id`, `fictional_time_acquired`).
+- **Character Memories & Relevance Scoring**:
+  - Relevance-bounded retrieval algorithm with $N \le 100$ candidate bound and $\tau = 604800\,\text{s}$:
+    $$S_{\text{total}} = 0.25 \cdot \text{Recency} + 0.25 \cdot \text{Salience} + 0.20 \cdot \text{Importance} + 0.30 \cdot \text{Context}$$
+    where $\text{Recency} = \frac{1}{1 + \frac{\Delta t}{604800}}$ ($\Delta t = \text{secondsBetween}(M.\text{fictional\_time}, T_{\text{now}})$).
+  - Deterministic tie-breaking: $S_{\text{total}}$ DESC, $M.\text{fictional\_time}$ DESC, $M.\text{lws\_id}$ ASC.
+  - Mutable patching for allowed fields only (`summary`, `details`, `emotional_salience`, `importance`, `confidence`, `status`, `tags`, `deleted_at`), preserving immutable causal fields.
+- **Character Beliefs & Suspicions**:
+  - Schema persistence: `subject_key`, `belief_type`, `statement`, `confidence`, `source_basis`, `causal_event_id`, `deleted_at`.
+  - Confidence integer bounds: $1 \le \text{confidence} \le 100$.
+  - Authoritative mutation via `DIRECTOR_MODIFY_STATE` and event payloads.
+- **Simulation Cameras & Perspectives**:
+  - Camera tracking supporting modes: `follow_character`, `observe_location`, `god_view`.
+  - **Privileged Observer Perspective** (`GET /api/living-world/simulations/:simLwsId/observer/perspective`): Omniscient ground truth directly from simulation state.
+  - **Subjective Character Perspective** (`GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/perspective`): Strictly non-omniscient perspective filtered by perceptions, active knowledge, memories, and beliefs.
+- **Deterministic Derivations & Pure Zero-SQL Replay**:
+  - Deterministic UUIDs generated via SHA-256 namespace hashing `generateDeterministicUuid(namespace, ...parts)`.
+  - `simulationReducer` reconstructs perceptions, knowledge, memories, beliefs, and camera state in-memory with zero SQL queries.
+  - `verifySimulationParity` proves 100% attribute parity with database state.
+- **REST API (Exactly 13 Endpoints)**:
+  - Mounts 13 Phase 6 REST endpoints under `/api/living-world/simulations/:simLwsId/...`.
+
+#### 2. Future Scope Distinction (Phase 7+)
+- **Phase 7 Future Scope**: Autonomous character cognition, goal pursuit (Tier 3 arbitration), internal deliberation, and decision making.
 
 ## Status labels
 

@@ -5,6 +5,7 @@ import { generateUuid, isValidUuid, isoNow, safeJsonParse, ensureActiveSimulatio
 import { evaluateAuthority } from './authority.js';
 import { applyStateTransition } from './state-transitions.js';
 import { EVENT_TYPES } from './taxonomy.js';
+import { evaluateEventPerceptions } from '../perception/spatial.js';
 
 /**
  * Computes a deterministic SHA-256 fingerprint of an event proposal for idempotency validation.
@@ -217,6 +218,45 @@ export function internalCommitEvent(db, sim, proposal, callerContext = {}) {
 
     // 6. Apply State Transition
     applyStateTransition(db, sim, evaluated, eventCreatedAt);
+
+    // 6.5. Evaluate and persist spatial perceptions
+    const worldLocations = db.prepare('SELECT * FROM lws_locations WHERE world_id = ?').all(sim.world_id);
+    const locationsById = new Map(worldLocations.map(l => [l.id, l]));
+    const activeCharacters = db.prepare('SELECT * FROM lws_simulation_characters WHERE simulation_id = ? AND deleted_at IS NULL').all(sim.id);
+
+    const eventEntity = {
+        id: evaluated.event_internal_id,
+        lws_id: eventLwsId,
+        simulation_id: sim.id,
+        event_type: evaluated.event_type,
+        fictional_time: evaluated.fictional_time,
+        actor_character_id: finalActorInternalId,
+        target_character_id: evaluated.target_internal_id,
+        location_id: evaluated.location_internal_id,
+        payload: finalPayload,
+        created_at: eventCreatedAt,
+    };
+
+    const perceptions = evaluateEventPerceptions(eventEntity, activeCharacters, locationsById);
+    if (perceptions.length > 0) {
+        const insertPerceptionStmt = db.prepare(`
+            INSERT INTO lws_event_perceptions (
+                lws_id, simulation_id, event_id, simulation_character_id,
+                sensory_modality, perceived_at_fictional_time, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const p of perceptions) {
+            insertPerceptionStmt.run(
+                p.lws_id,
+                p.simulation_id,
+                p.event_id,
+                p.simulation_character_id,
+                p.sensory_modality,
+                p.perceived_at_fictional_time,
+                p.created_at,
+            );
+        }
+    }
 
     // 7. Return Formatted Event
     const insertedRow = db.prepare(`
