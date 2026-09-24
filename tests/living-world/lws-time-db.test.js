@@ -74,15 +74,15 @@ describe('LWS Migration 005: Time, Schedules, and Routines Database Integrity', 
         expect(triggerNames).not.toContain('trg_lws_events_fictional_time_matches_sim');
 
         // 4 Routine triggers
-        expect(triggerNames).toContain('trg_lws_routines_sim_immutable');
-        expect(triggerNames).toContain('trg_lws_routines_char_same_sim');
-        expect(triggerNames).toContain('trg_lws_routines_same_world_loc');
+        expect(triggerNames).toContain('trg_lws_routines_identity_immutable');
+        expect(triggerNames).toContain('trg_lws_routines_insert_integrity');
+        expect(triggerNames).toContain('trg_lws_routines_update_location');
         expect(triggerNames).toContain('trg_lws_routines_no_delete');
 
         // 4 Scheduled event triggers
-        expect(triggerNames).toContain('trg_lws_sched_events_sim_immutable');
         expect(triggerNames).toContain('trg_lws_sched_events_terminal_immutable');
-        expect(triggerNames).toContain('trg_lws_sched_events_integrity');
+        expect(triggerNames).toContain('trg_lws_sched_events_insert_integrity');
+        expect(triggerNames).toContain('trg_lws_sched_events_update_integrity');
         expect(triggerNames).toContain('trg_lws_sched_events_no_delete');
     });
 
@@ -196,7 +196,7 @@ describe('LWS Migration 005: Time, Schedules, and Routines Database Integrity', 
             }).toThrow(/event fictional_time cannot precede preceding sequence event fictional_time/);
         });
 
-        test('trg_lws_routines_sim_immutable protects simulation_id on update', () => {
+        test('trg_lws_routines_identity_immutable protects simulation_id and simulation_character_id on update', () => {
             db.prepare(`
                 INSERT INTO lws_simulation_character_routines (
                     lws_id, simulation_id, simulation_character_id, block_id, day_of_week,
@@ -208,6 +208,11 @@ describe('LWS Migration 005: Time, Schedules, and Routines Database Integrity', 
             expect(() => {
                 db.prepare('UPDATE lws_simulation_character_routines SET simulation_id = 9999 WHERE lws_id = \'r-1\'').run();
             }).toThrow(/simulation_id is immutable/);
+
+            // Cannot change simulation_character_id
+            expect(() => {
+                db.prepare('UPDATE lws_simulation_character_routines SET simulation_character_id = 9999 WHERE lws_id = \'r-1\'').run();
+            }).toThrow(/simulation_character_id is immutable/);
         });
 
         test('trg_lws_routines_no_delete rejects physical DELETE', () => {
@@ -223,7 +228,7 @@ describe('LWS Migration 005: Time, Schedules, and Routines Database Integrity', 
             }).toThrow(/routine rows cannot be physically deleted/);
         });
 
-        test('trg_lws_routines_same_world_loc guards location validity on insert', () => {
+        test('trg_lws_routines_insert_integrity guards location validity on insert', () => {
             // Soft-delete location
             db.prepare('UPDATE lws_locations SET deleted_at = \'2026-01-01\' WHERE id = ?').run(locId);
 
@@ -234,6 +239,24 @@ describe('LWS Migration 005: Time, Schedules, and Routines Database Integrity', 
                         start_time, end_time, activity, target_location_id, created_at, updated_at
                     ) VALUES ('r-bad-loc', ?, ?, 'morning_rest', 'daily', '08:00:00', '10:00:00', 'resting', ?, '2026-01-01', '2026-01-01')
                 `).run(simId, simCharId, locId);
+            }).toThrow(/routine target location must belong to simulation world and not be soft-deleted/);
+        });
+
+        test('trg_lws_routines_update_location guards location validity on update', () => {
+            // Insert routine with valid (non-deleted) location
+            db.prepare(`
+                INSERT INTO lws_simulation_character_routines (
+                    lws_id, simulation_id, simulation_character_id, block_id, day_of_week,
+                    start_time, end_time, activity, target_location_id, created_at, updated_at
+                ) VALUES ('r-upd-loc', ?, ?, 'morning_rest', 'daily', '08:00:00', '10:00:00', 'resting', ?, '2026-01-01', '2026-01-01')
+            `).run(simId, simCharId, locId);
+
+            // Soft-delete the location
+            db.prepare('UPDATE lws_locations SET deleted_at = \'2026-01-01\' WHERE id = ?').run(locId);
+
+            // Updating target_location_id to a soft-deleted location is rejected
+            expect(() => {
+                db.prepare('UPDATE lws_simulation_character_routines SET target_location_id = ? WHERE lws_id = \'r-upd-loc\'').run(locId);
             }).toThrow(/routine target location must belong to simulation world and not be soft-deleted/);
         });
 
