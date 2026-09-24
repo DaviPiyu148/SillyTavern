@@ -149,13 +149,13 @@ describe('LWS Phase 5 Scheduled Events and Reciprocal Supersession', () => {
         expect(cancelled.status).toBe('cancelled');
         expect(cancelled.cancel_event).toBeDefined();
 
-        // 2. Re-cancel must fail with HTTP 409
+        // 2. Re-cancel must fail with HTTP 422
         const recancelRes = await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/scheduled-events/${created.lws_id}/cancel`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ reason: 'Try again' }),
         });
-        expect(recancelRes.status).toBe(409);
+        expect(recancelRes.status).toBe(422);
     });
 
     test('POST /scheduled-events/:id/supersede links predecessor and successor reciprocally', async () => {
@@ -192,7 +192,7 @@ describe('LWS Phase 5 Scheduled Events and Reciprocal Supersession', () => {
         expect(predecessor.status).toBe('superseded');
         expect(predecessor.superseded_by_event_id).toBe(successor.lws_id);
 
-        // Attempting to supersede again must fail with HTTP 409
+        // Attempting to supersede again must fail with HTTP 422
         const resupRes = await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/scheduled-events/${original.lws_id}/supersede`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -201,6 +201,6 @@ describe('LWS Phase 5 Scheduled Events and Reciprocal Supersession', () => {
                 scheduled_fictional_time: '2026-06-01T19:00:00Z',
             }),
         });
-        expect(resupRes.status).toBe(409);
+        expect(resupRes.status).toBe(422);
     });
 });

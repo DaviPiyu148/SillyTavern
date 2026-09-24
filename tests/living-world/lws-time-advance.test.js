@@ -346,15 +346,15 @@ describe('LWS Phase 5 Time Advance and Timeline Resolution', () => {
             const triggeredRow = await getRes.json();
             expect(triggeredRow.status).toBe('triggered');
 
-            // Attempt to cancel triggered event aborts with 409
+            // Attempt to cancel triggered event aborts with 422
             const cancelRes = await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/scheduled-events/${eventId}/cancel`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ reason: 'cancel after trigger' }),
             });
-            expect(cancelRes.status).toBe(409);
+            expect(cancelRes.status).toBe(422);
 
-            // Attempt to supersede triggered event aborts with 409
+            // Attempt to supersede triggered event aborts with 422
             const supersedeRes = await fetch(`${baseUrl}/api/living-world/simulations/${sim.lws_id}/scheduled-events/${eventId}/supersede`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -363,7 +363,7 @@ describe('LWS Phase 5 Time Advance and Timeline Resolution', () => {
                     scheduled_fictional_time: '2026-06-01T18:00:00Z',
                 }),
             });
-            expect(supersedeRes.status).toBe(409);
+            expect(supersedeRes.status).toBe(422);
 
             // Verify pure replay parity is 100%
             const parity = verifySimulationParity(sim.lws_id);

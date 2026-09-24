@@ -941,7 +941,7 @@ router.post('/simulations/:simLwsId/scheduled-events/:eventLwsId/cancel', (req, 
         const sim = ensureActiveSimulation(db, req.params.simLwsId);
         const existing = getScheduledEventByLwsId(db, sim.id, req.params.eventLwsId);
         if (existing.status !== 'pending') {
-            throw new LwsConflictError(`Cannot cancel scheduled event with terminal status '${existing.status}'`);
+            throw new LwsAuthorityError(`Cannot cancel scheduled event with terminal status '${existing.status}'`, 'SCHEDULED_EVENT_TERMINAL');
         }
 
         const event = commitEvent(req.params.simLwsId, {
@@ -970,7 +970,7 @@ router.post('/simulations/:simLwsId/scheduled-events/:eventLwsId/supersede', (re
         const sim = ensureActiveSimulation(db, req.params.simLwsId);
         const existing = getScheduledEventByLwsId(db, sim.id, req.params.eventLwsId);
         if (existing.status !== 'pending') {
-            throw new LwsConflictError(`Cannot supersede scheduled event with terminal status '${existing.status}'`);
+            throw new LwsAuthorityError(`Cannot supersede scheduled event with terminal status '${existing.status}'`, 'SCHEDULED_EVENT_TERMINAL');
         }
 
         const input = validateScheduledEventInput(req.body ?? {}, sim.current_fictional_time);
