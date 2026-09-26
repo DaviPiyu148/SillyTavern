@@ -42,3 +42,11 @@ Restrict LWS file access to its owned boundaries. Remote model calls occur throu
 ## Prompt precedence is not security
 
 Putting LWS text first or last in a prompt is not a sufficient control. Application logic enforces security and simulation invariants.
+
+## Cognition and deliberation invariants
+
+- **Resource bounding**: Deliberation and candidate generation must bound candidate evaluation counts and iteration steps to prevent unbounded CPU execution.
+- **Moral veto enforcement**: Hard moral veto constraints ($\ge +75$) are enforced in application code during deliberation, preventing character actions that violate fundamental moral axioms regardless of prompt manipulation.
+- **Lifecycle gating**: Cognition endpoints enforce simulation status checks (rejecting mutations on paused or archived simulations with HTTP 400).
+- **Auditability**: All goal, need, and intention mutations must be committed through the authoritative event ledger (`UPDATE_RUNTIME_STATE`) to preserve an unbroken audit trail and prevent direct-SQL tampering.
+

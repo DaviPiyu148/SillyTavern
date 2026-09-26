@@ -11,7 +11,8 @@ SillyTavern
     ├── authoring
     ├── simulation
     ├── events/time
-    ├── cognition/context
+    ├── perception/memory
+    ├── cognition (8 modules: needs, goals, intentions, values, emotions, deliberation, arbitration, common)
     ├── observation/director
     ├── persistence/replay
     ├── import/normalization
@@ -46,6 +47,7 @@ There is one application/runtime. Do not introduce a separate LWS web app or ser
 - temporal travel;
 - perception and knowledge isolation;
 - memory;
+- character cognition (needs, goals, intentions, values, emotions, deliberation, routine arbitration);
 - relationships/factions;
 - character development;
 - dynamic population;

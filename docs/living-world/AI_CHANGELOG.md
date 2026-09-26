@@ -30,6 +30,132 @@ Known limitations or implications.
 
 ---
 
+## 2026-09-26 — Phase 7: Character Cognition and Decision Making
+
+Status: IMPLEMENTED / VERIFIED / ACCEPTED
+
+### Change
+Implemented autonomous character cognition, physiological/psychological need dynamics, goal lifecycles, intention tracking, personality values, emotional decay, internal deliberation, Tier 3 routine arbitration, pure zero-SQL replay, and REST transport for Living World Simulator (LWS):
+
+1. Created database migration `007_cognition_and_decisions.js` elevating schema version to `PRAGMA user_version = 7`:
+   - Exactly 5 new tables: `lws_character_needs`, `lws_character_goals`, `lws_character_intentions`, `lws_character_values`, `lws_character_emotions`.
+   - Exactly 15 Phase 7 triggers (55 cumulative across Phase 4–7 tables):
+     1. `trg_lws_needs_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on needs.
+     2. `trg_lws_needs_insert_integrity`: Validates character belongs to simulation on need insertion.
+     3. `trg_lws_needs_no_delete`: Prohibits direct physical `DELETE` on needs.
+     4. `trg_lws_goals_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on goals.
+     5. `trg_lws_goals_insert_integrity`: Validates character belongs to simulation and parent goal consistency on insertion.
+     6. `trg_lws_goals_terminal_immutable`: Freezes terminal goals (`completed`, `abandoned`).
+     7. `trg_lws_goals_no_delete`: Prohibits direct physical `DELETE` on goals (requires soft-delete).
+     8. `trg_lws_intentions_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on intentions.
+     9. `trg_lws_intentions_insert_integrity`: Validates character, goal, and event reference belong to simulation on intention insertion.
+     10. `trg_lws_intentions_terminal_immutable`: Freezes terminal intentions (`completed`, `failed`, `cancelled`).
+     11. `trg_lws_intentions_no_delete`: Prohibits direct physical `DELETE` on intentions.
+     12. `trg_lws_values_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on values.
+     13. `trg_lws_values_insert_integrity`: Validates character belongs to simulation on value insertion.
+     14. `trg_lws_values_no_delete`: Prohibits direct physical `DELETE` on values.
+     15. `trg_lws_emotions_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on emotions.
+   - Exactly 10 new indexes (31 cumulative across Phase 4–7 tables):
+     1. `idx_lws_needs_sim_char`: Index on `lws_character_needs(simulation_id, simulation_character_id)`.
+     2. `idx_lws_goals_sim_char`: Index on `lws_character_goals(simulation_id, simulation_character_id) WHERE deleted_at IS NULL`.
+     3. `idx_lws_goals_status`: Index on `lws_character_goals(simulation_id, status) WHERE deleted_at IS NULL`.
+     4. `idx_lws_goals_client_key_unique`: Non-partial unique index on `lws_character_goals(simulation_id, simulation_character_id, client_goal_key) WHERE client_goal_key IS NOT NULL`.
+     5. `idx_lws_intentions_sim_char`: Index on `lws_character_intentions(simulation_id, simulation_character_id)`.
+     6. `idx_lws_intentions_status`: Index on `lws_character_intentions(simulation_id, status)`.
+     7. `idx_lws_intentions_char_seq`: Unique index on `lws_character_intentions(simulation_id, simulation_character_id, character_sequence_number)`.
+     8. `idx_lws_values_sim_char`: Index on `lws_character_values(simulation_id, simulation_character_id)`.
+     9. `idx_lws_emotions_sim_char`: Index on `lws_character_emotions(simulation_id, simulation_character_id)`.
+     10. `idx_lws_emotions_char_time`: Index on `lws_character_emotions(simulation_character_id, onset_fictional_time DESC)`.
+   - Cumulative database inventory: Exactly 26 tables, 55 triggers on Phase 4–7 tables, 31 indexes.
+
+2. Implemented 8 Cognition Modules under `src/living-world/cognition/`:
+   - `common.js`: UUID validation, bounds checks, timestamp helpers, and common validation routines.
+   - `needs.js`: Physiological and psychological needs (5 dimensions: `energy`, `nourishment`, `social`, `safety`, `morale` in $[0, 100]$), rates of change, acute deficit calculation ($< 20$). Includes retained domain helper `evaluateAcuteNeeds()` reachable only from Phase 7 tests.
+   - `goals.js`: Hierarchical goal management (`proposed`, `active`, `suspended`, `completed`, `abandoned`), priority, urgency, and parent goal validations. 100% event-backed goal mutations via `UPDATE_RUNTIME_STATE` with automatic child intention cancellation upon entering terminal states (P0-1 correction).
+   - `intentions.js`: Action commitments with dual sequence numbers (simulation sequence and per-character sequence), plan steps, and Option B failure state persistence via `UPDATE_RUNTIME_STATE`.
+   - `values.js`: Personality values (6 dimensions: `honesty`, `courage`, `compassion`, `ambition`, `loyalty`, `curiosity` in $[-100, 100]$), weights, stability, and hard moral veto rule ($\ge +75$).
+   - `emotions.js`: Emotional states with hyperbolic decay formula ($I(t) = \frac{I_0}{1 + \Delta t / \tau}$, $\tau = 14400\,\text{s}$).
+   - `deliberation.js`: Multi-criteria deliberation engine computing composite action scores based on need satisfaction, value alignment, emotional congruence, and plan feasibility, subject to moral veto constraints.
+   - `arbitration.js`: Six-tier routine arbitration activating Tier 3 `GOAL_PURSUIT` (`DIRECTOR_OVERRIDE` > `INTERRUPTED` > `GOAL_PURSUIT` > `TRAVEL` > `ROUTINE` > `IDLE`).
+
+3. Replay and Parity Engine (`src/living-world/events/replay.js`):
+   - `simulationReducer` handles all cognition state mutations in pure memory with zero SQL queries.
+   - `verifySimulationParity` proves 100% tested field-level parity for the declared Phase 7 cognition state across all 5 cognition tables with zero drift.
+
+4. Mounted Exact 9 REST Routes in `src/endpoints/living-world.js`:
+   - `GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/needs`
+   - `PATCH /api/living-world/simulations/:simLwsId/characters/:charLwsId/needs`
+   - `GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/goals`
+   - `POST /api/living-world/simulations/:simLwsId/characters/:charLwsId/goals`
+   - `PATCH /api/living-world/simulations/:simLwsId/characters/:charLwsId/goals/:goalLwsId`
+   - `GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/intentions`
+   - `GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/values`
+   - `PATCH /api/living-world/simulations/:simLwsId/characters/:charLwsId/values`
+   - `GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/emotions`
+   - Conforms strictly to contract without direct `DELETE /goals/:id` route; soft-deletion is performed via `PATCH /goals/:id` with `{ is_deleted: true }` (P0-2 contract closure).
+
+5. Authored ADR-015 in `docs/living-world/decisions/ADR-015-character-cognition-and-decision-making.md`.
+
+### Reason
+Fulfill Phase 7 of the Living World Simulator roadmap: implement autonomous character cognition, need dynamics, goal lifecycles, intention tracking, personality values, emotional decay, internal deliberation, Tier 3 routine arbitration, pure zero-SQL replay, and REST transport.
+
+### Historical Provenance & Git Lineage
+- **Phase 6 Accepted Parent**: `3e0d3279338561040cfc44ed06fb522cf8116afe`
+- **Phase 7 Initial Implementation**: `e1709ce9ca17e44c592811a255e99de41263e009`
+- **Phase 7 Final Contract Closure**: `f2212206a37d01885ac97cf538060fdcedfb14b1` (resolved P0-1 direct-SQL goal mutations and P0-2 contract closure removing extraneous DELETE route)
+
+### Files/modules
+- Created:
+  - `src/living-world/migrations/007_cognition_and_decisions.js`
+  - `src/living-world/cognition/arbitration.js`
+  - `src/living-world/cognition/common.js`
+  - `src/living-world/cognition/deliberation.js`
+  - `src/living-world/cognition/emotions.js`
+  - `src/living-world/cognition/goals.js`
+  - `src/living-world/cognition/intentions.js`
+  - `src/living-world/cognition/needs.js`
+  - `src/living-world/cognition/values.js`
+  - `tests/living-world/lws-cognition-db.test.js`
+  - `tests/living-world/lws-needs.test.js`
+  - `tests/living-world/lws-goals.test.js`
+  - `tests/living-world/lws-intentions.test.js`
+  - `tests/living-world/lws-values.test.js`
+  - `tests/living-world/lws-emotions.test.js`
+  - `tests/living-world/lws-deliberation.test.js`
+  - `tests/living-world/lws-cognition-replay.test.js`
+  - `docs/living-world/decisions/ADR-015-character-cognition-and-decision-making.md`
+- Modified:
+  - `src/living-world/migrations/index.js`
+  - `src/living-world/events/state-transitions.js`
+  - `src/living-world/events/replay.js`
+  - `src/living-world/index.js`
+  - `src/endpoints/living-world.js`
+  - `docs/living-world/PROJECT_STATE.md`
+  - `docs/living-world/PERSISTENCE.md`
+  - `docs/living-world/AI_CHANGELOG.md`
+  - `docs/living-world/DOCUMENTATION_INDEX.md`
+  - `docs/living-world/ARCHITECTURE.md`
+  - `docs/living-world/SECURITY.md`
+
+### Architecture
+- Closed 29-event taxonomy preserved with zero additions.
+- Database version advances to `PRAGMA user_version = 7` with 5 new tables, 15 triggers, and 10 indexes.
+- 100% event-backed goal mutations via `UPDATE_RUNTIME_STATE`.
+- Option B failed intention persistence.
+- Pure zero-SQL replay with 100% tested field-level parity for declared Phase 7 cognition state.
+- Exact 9 REST endpoints.
+
+### Tests
+- Dedicated Phase 7 test suites: 8 suites / 47 tests passing.
+- Cumulative LWS test suites: 47 suites / 341 tests passing.
+- Full repository unit test suite: 65 suites / 753 tests passing.
+- ESLint checks passing cleanly with 0 errors across root and test directories.
+
+### Notes
+- Social systems, relationships, group dynamics, and emergent social hierarchy remain designed for Phase 8.
+
+---
+
 ## 2026-09-24 — Phase 6: Perception, Knowledge, Memory, and Observation
 
 Status: IMPLEMENTED / VERIFIED

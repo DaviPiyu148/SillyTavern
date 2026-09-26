@@ -190,6 +190,43 @@ Schema changes require explicit, versioned migrations and verification.
     8. `idx_lws_beliefs_lookup`: Index on `lws_character_beliefs(simulation_character_id, subject_key) WHERE deleted_at IS NULL`.
     9. `idx_lws_beliefs_sim_char`: Index on `lws_character_beliefs(simulation_id, simulation_character_id) WHERE deleted_at IS NULL`.
     10. `idx_lws_cameras_sim`: Index on `lws_simulation_cameras(simulation_id, camera_name)`.
-  - Cumulative database inventory: Exactly 21 tables (16 prior tables + 5 Phase 6 tables = 21 total tables), exactly 39 triggers on Phase 4–6 tables, and exactly 21 indexes.
-  - Pure in-memory zero-SQL replay engine expanded to fold all Phase 6 events, perceptions, knowledge, memories, beliefs, and camera state with 100% attribute parity using deterministic UUID derivation.
+- `007_cognition_and_decisions`: Character cognition, goals, intentions, values, emotions, and internal deliberation (`user_version = 7`):
+  - Exactly 5 new tables:
+    1. `lws_character_needs`: Tracks physiological and psychological need levels (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `need_type`, `current_value`, `decay_rate`, `recovery_rate`, `last_updated_fictional_time`, `created_at`, `updated_at`).
+    2. `lws_character_goals`: Hierarchical goal management (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `parent_goal_id`, `client_goal_key`, `title`, `description`, `goal_type`, `priority`, `urgency`, `status`, `target_entity_type`, `target_entity_id`, `progress`, `created_at`, `updated_at`, `deleted_at`).
+    3. `lws_character_intentions`: Concrete action commitments (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `goal_id`, `character_sequence_number`, `simulation_sequence_number`, `activity`, `target_location_id`, `target_character_id`, `status`, `plan_steps`, `failure_reason`, `created_at`, `updated_at`).
+    4. `lws_character_values`: Personality values (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `value_type`, `alignment_score`, `weight`, `stability`, `created_at`, `updated_at`).
+    5. `lws_character_emotions`: Subjective emotional states (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `emotion_type`, `valence`, `arousal`, `intensity`, `decay_rate`, `onset_fictional_time`, `created_at`, `updated_at`).
+  - Exactly 15 Phase 7 triggers (55 cumulative across Phase 4–7 tables):
+    1. `trg_lws_needs_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on needs.
+    2. `trg_lws_needs_insert_integrity`: Validates character belongs to simulation on need insertion.
+    3. `trg_lws_needs_no_delete`: Prohibits direct physical `DELETE` on needs.
+    4. `trg_lws_goals_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on goals.
+    5. `trg_lws_goals_insert_integrity`: Validates character belongs to simulation and parent goal consistency on insertion.
+    6. `trg_lws_goals_terminal_immutable`: Freezes terminal goals (`completed`, `abandoned`).
+    7. `trg_lws_goals_no_delete`: Prohibits direct physical `DELETE` on goals (requires soft-delete).
+    8. `trg_lws_intentions_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on intentions.
+    9. `trg_lws_intentions_insert_integrity`: Validates character, goal, and event reference belong to simulation on intention insertion.
+    10. `trg_lws_intentions_terminal_immutable`: Freezes terminal intentions (`completed`, `failed`, `cancelled`).
+    11. `trg_lws_intentions_no_delete`: Prohibits direct physical `DELETE` on intentions.
+    12. `trg_lws_values_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on values.
+    13. `trg_lws_values_insert_integrity`: Validates character belongs to simulation on value insertion.
+    14. `trg_lws_values_no_delete`: Prohibits direct physical `DELETE` on values.
+    15. `trg_lws_emotions_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on emotions.
+  - Exactly 10 new indexes (31 cumulative across Phase 4–7 tables):
+    1. `idx_lws_needs_sim_char`: Index on `lws_character_needs(simulation_id, simulation_character_id)`.
+    2. `idx_lws_goals_sim_char`: Index on `lws_character_goals(simulation_id, simulation_character_id) WHERE deleted_at IS NULL`.
+    3. `idx_lws_goals_status`: Index on `lws_character_goals(simulation_id, status) WHERE deleted_at IS NULL`.
+    4. `idx_lws_goals_client_key_unique`: Non-partial unique index on `lws_character_goals(simulation_id, simulation_character_id, client_goal_key) WHERE client_goal_key IS NOT NULL`.
+    5. `idx_lws_intentions_sim_char`: Index on `lws_character_intentions(simulation_id, simulation_character_id)`.
+    6. `idx_lws_intentions_status`: Index on `lws_character_intentions(simulation_id, status)`.
+    7. `idx_lws_intentions_char_seq`: Unique index on `lws_character_intentions(simulation_id, simulation_character_id, character_sequence_number)`.
+    8. `idx_lws_values_sim_char`: Index on `lws_character_values(simulation_id, simulation_character_id)`.
+    9. `idx_lws_emotions_sim_char`: Index on `lws_character_emotions(simulation_id, simulation_character_id)`.
+    10. `idx_lws_emotions_char_time`: Index on `lws_character_emotions(simulation_character_id, onset_fictional_time DESC)`.
+  - Cumulative database inventory: Exactly 26 tables (1 Phase 1 table `lws_meta` + 9 Phase 2 tables + 2 Phase 3 tables + 2 Phase 4 tables + 2 Phase 5 tables + 5 Phase 6 tables + 5 Phase 7 tables = 26 total tables), exactly 55 triggers on Phase 4–7 tables (Phase 4: 16, Phase 5: 9, Phase 6: 15, Phase 7: 15 = 55), and exactly 31 indexes on Phase 4–7 tables (Phase 4: 7, Phase 5: 4, Phase 6: 10, Phase 7: 10 = 31).
+  - Event-backed goal mutations: All goal lifecycle state transitions execute strictly via `UPDATE_RUNTIME_STATE` (P0-1 correction).
+  - Option B failed intentions: Failed intention state transitions persist failure reason and execution metadata via `UPDATE_RUNTIME_STATE`.
+  - Pure in-memory zero-SQL replay engine expanded to fold all Phase 7 cognition state transitions with 100% tested field-level parity for the declared Phase 7 cognition state against SQLite database state.
+
 

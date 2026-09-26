@@ -2,7 +2,7 @@
 
 ## As-of
 
-2026-09-23.
+2026-09-26.
 
 ## Host repository
 
@@ -54,8 +54,8 @@ Travel consumes fictional time; older instantaneous-travel interpretation is sup
 | **Phase 3** | **Simulation Runtime and Persistence** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 003 applied (`PRAGMA user_version = 3`); exactly 2 runtime tables (`lws_simulations`, `lws_simulation_characters`), 10 DB triggers, 5 indexes; Simulation & SimulationCharacter domain services; scenario instantiation with atomic roster snapshotting; Two-Simulation Isolation proven; status transition matrix; semantic calendar date validation; soft-deleted location assignment guards; 10 authenticated REST endpoints; full test suites passing (37/37 suites, 543/543 tests); linters clean (0 errors). |
 | **Phase 4** | **Events, Authority, and State Transitions** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 004 applied (`PRAGMA user_version = 4`); tables `lws_events` and `lws_narrative_turns`; exactly 16 DB triggers; exactly 7 DB indexes; closed 29-event taxonomy (23 active Phase 4, 6 deferred Phase 5, 13 stateful); 4-stage authority pipeline; server-enforced provenance; Phase 3 mutation bypasses eliminated; two-transaction savepoint execution with durable rejected-turn persistence; pure in-memory zero-SQL replay engine (`replaySimulation`) with 100% parity verification (`verifySimulationParity`); 7 REST endpoints; 24 test suites / 184 tests passing; linters clean (0 errors); ADR-012 authored. |
 | **Phase 5** | **Fictional Time, Schedules, Routines, and Travel** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 005 applied (`PRAGMA user_version = 5`); exactly 2 new tables (`lws_simulation_character_routines`, `lws_scheduled_events`); exactly 9 Phase 5 DB triggers (1 evolved monotonic clock trigger + 4 routine triggers + 4 scheduled-event triggers; 24 cumulative triggers across system); exactly 4 new indexes (11 cumulative across Phase 4 & 5 tables); closed 29-event taxonomy fully activated (all 29 active, 0 deferred, 19 stateful); discrete timeline resolution engine discovering critical sub-events in $(T_{\text{start}}, T_{\text{target}}]$; 6-tier routine arbitration with severe condition suspension; tree LCA spatial travel with planned departures ($T_{\text{dep}} = T_{\text{start}} - \text{duration}$); reciprocal supersession integrity enforced at DB boundary; One Authoritative Path policy (`POST /events` rejects Phase 5 events with HTTP 422 `DEDICATED_ROUTE_REQUIRED`); pure zero-SQL in-memory replay with 100% parity verification; 8 new REST endpoints; targeted test suite passing (31/31 suites, 241/241 tests); full repository unit suite passing (50/50 suites, 652/652 tests); linters clean (0 errors); ADR-013 authored. |
-| **Phase 6** | **Perception, Knowledge, Memory, and Observation** | **IMPLEMENTED & VERIFIED** | Migration 006 applied (`PRAGMA user_version = 6`); exactly 5 new tables (`lws_event_perceptions`, `lws_character_knowledge`, `lws_character_memories`, `lws_character_beliefs`, `lws_simulation_cameras`); exactly 15 Phase 6 DB triggers (39 cumulative across system); exactly 10 new indexes (21 cumulative across Phase 4–6 tables); spatial sensory perception engine with tree LCA distance and Option A canonical modality precedence (`tactile > visual > auditory > olfactory`); subjective character knowledge acquisition with deterministic provenance tracking; character memories with relevance-bounded retrieval ($N \le 100$, $\tau = 604800\,\text{s}$, exact weights $0.25/0.25/0.20/0.30$); character beliefs ($1 \le \text{confidence} \le 100$) with `DIRECTOR_MODIFY_STATE` mutation support; multi-mode simulation cameras (`follow_character`, `observe_location`, `god_view`) with privileged Observer Perspective (`GET /observer/perspective`) vs non-omniscient character perspective; pure zero-SQL in-memory replay parity across all Phase 6 tables using deterministic SHA-256 UUID derivation; exactly 13 Phase 6 REST endpoints; targeted test suite passing (39/39 suites, 285/285 tests); full repository unit suite passing (58/58 suites, 696/696 tests); linters clean (0 errors); ADR-014 authored. |
-| Phase 7 | Character Cognition and Decision Making | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
+| **Phase 6** | **Perception, Knowledge, Memory, and Observation** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 006 applied (`PRAGMA user_version = 6`); exactly 5 new tables (`lws_event_perceptions`, `lws_character_knowledge`, `lws_character_memories`, `lws_character_beliefs`, `lws_simulation_cameras`); exactly 15 Phase 6 DB triggers (39 cumulative across system); exactly 10 new indexes (21 cumulative across Phase 4–6 tables); spatial sensory perception engine with tree LCA distance and Option A canonical modality precedence (`tactile > visual > auditory > olfactory`); subjective character knowledge acquisition with deterministic provenance tracking; character memories with relevance-bounded retrieval ($N \le 100$, $\tau = 604800\,\text{s}$, exact weights $0.25/0.25/0.20/0.30$); character beliefs ($1 \le \text{confidence} \le 100$) with `DIRECTOR_MODIFY_STATE` mutation support; multi-mode simulation cameras (`follow_character`, `observe_location`, `god_view`) with privileged Observer Perspective (`GET /observer/perspective`) vs non-omniscient character perspective; pure zero-SQL in-memory replay parity across all Phase 6 tables using deterministic SHA-256 UUID derivation; exactly 13 Phase 6 REST endpoints; targeted test suite passing (39/39 suites, 285/285 tests); full repository unit suite passing (58/58 suites, 696/696 tests); linters clean (0 errors); ADR-014 authored. |
+| **Phase 7** | **Character Cognition and Decision Making** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 007 applied (`PRAGMA user_version = 7`); exactly 5 new runtime tables (`lws_character_needs`, `lws_character_goals`, `lws_character_intentions`, `lws_character_values`, `lws_character_emotions`); exactly 15 Phase 7 DB triggers (55 cumulative across Phase 4–7 tables); exactly 10 new indexes (31 cumulative across Phase 4–7 tables); 8 cognition modules in `src/living-world/cognition/`; physiological and psychological needs (5 dimensions: `energy`, `nourishment`, `social`, `safety`, `morale`); goal lifecycles with permanent non-null `client_goal_key` uniqueness via non-partial index; personality values (6 dimensions: `honesty`, `courage`, `compassion`, `ambition`, `loyalty`, `curiosity`) with hard moral veto ($\ge +75$); hyperbolic emotional decay ($\tau = 14400\,\text{s}$); deterministic deliberation and composite scoring; 6-tier routine arbitration with Tier 3 `GOAL_PURSUIT` activation; 100% event-backed goal mutations via `UPDATE_RUNTIME_STATE` with automatic child intention cancellations; Option B failed intention persistence via `UPDATE_RUNTIME_STATE`; pure zero-SQL in-memory replay with 100% tested field-level parity for declared cognition state; exact 9 Phase 7 REST endpoints (soft-delete via PATCH, no DELETE route); targeted test suite passing (7 dedicated cognition suites + 1 replay/parity suite, 47 tests); full repository unit suite passing (65/65 suites, 753/753 tests); linters clean (0 errors); ADR-015 authored; Git chain `3e0d32793385... → e1709ce9ca17... → f2212206a37d...` verified on `release`. |
 | Phase 8 | Social Systems and Character Development | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
 | Phase 9 | Living World, Population, Environment, and Emergence | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
 | Phase 10 | Prompt, Context, and ST Generation Integration | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
@@ -276,8 +276,57 @@ Phase 6 establishes perception, knowledge, memory, beliefs, and observation subs
 - **REST API (Exactly 13 Endpoints)**:
   - Mounts 13 Phase 6 REST endpoints under `/api/living-world/simulations/:simLwsId/...`.
 
-#### 2. Future Scope Distinction (Phase 7+)
-- **Phase 7 Future Scope**: Autonomous character cognition, goal pursuit (Tier 3 arbitration), internal deliberation, and decision making.
+### Phase 7 Implementation Details and Scope Distinction
+
+Phase 7 establishes autonomous character cognition, goal lifecycles, intention tracking, personality values, emotional dynamics, and internal deliberation in SQLite under migration `007_cognition_and_decisions` (`PRAGMA user_version = 7`).
+
+#### 1. Implemented Phase 7 Scope
+- **Schema & Migrations (Migration 007)**:
+  - `lws_character_needs`: Tracks physiological and psychological need levels (5 dimensions: `energy`, `nourishment`, `social`, `safety`, `morale` clamped to $[0, 100]$), decay/recovery rates, and last update fictional timestamps.
+  - `lws_character_goals`: Hierarchical goal management (`proposed`, `active`, `suspended`, `completed`, `abandoned`) with priority, urgency, parent-child goal linkages, optional permanent `client_goal_key`, and soft-deletion tracking.
+  - `lws_character_intentions`: Concrete action commitments (`pending`, `executing`, `completed`, `failed`, `cancelled`) with dual sequence ordering (simulation-wide sequence and character-scoped sequence), plan steps, and execution linkages.
+  - `lws_character_values`: Character core personality values (6 dimensions: `honesty`, `courage`, `compassion`, `ambition`, `loyalty`, `curiosity` clamped to $[-100, 100]$) with weights and stability coefficients.
+  - `lws_character_emotions`: Subjective emotional states with primary emotion types, valence, arousal, peak intensity, and hyperbolic decay anchors.
+- **Database Boundary Hardening (Cumulative 55 Triggers)**:
+  - Exactly 15 Phase 7 trigger objects:
+    1. `trg_lws_needs_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on needs.
+    2. `trg_lws_needs_insert_integrity`: Validates character belongs to simulation on need insertion.
+    3. `trg_lws_needs_no_delete`: Prohibits direct physical `DELETE` on needs.
+    4. `trg_lws_goals_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on goals.
+    5. `trg_lws_goals_insert_integrity`: Validates character belongs to simulation and parent goal consistency on insertion.
+    6. `trg_lws_goals_terminal_immutable`: Freezes terminal goals (`completed`, `abandoned`).
+    7. `trg_lws_goals_no_delete`: Prohibits direct physical `DELETE` on goals (requires soft-delete).
+    8. `trg_lws_intentions_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on intentions.
+    9. `trg_lws_intentions_insert_integrity`: Validates character, goal, and event reference belong to simulation on intention insertion.
+    10. `trg_lws_intentions_terminal_immutable`: Freezes terminal intentions (`completed`, `failed`, `cancelled`).
+    11. `trg_lws_intentions_no_delete`: Prohibits direct physical `DELETE` on intentions.
+    12. `trg_lws_values_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on values.
+    13. `trg_lws_values_insert_integrity`: Validates character belongs to simulation on value insertion.
+    14. `trg_lws_values_no_delete`: Prohibits direct physical `DELETE` on values.
+    15. `trg_lws_emotions_sim_immutable`: Enforces immutability of `simulation_id` and `simulation_character_id` on emotions.
+- **Indexes (Cumulative 31 Indexes across Phase 4–7 Tables)**:
+  - Exactly 10 Phase 7 indexes: `idx_lws_needs_sim_char`, `idx_lws_goals_sim_char`, `idx_lws_goals_status`, `idx_lws_goals_client_key_unique` (non-partial unique index on non-null `client_goal_key`), `idx_lws_intentions_sim_char`, `idx_lws_intentions_status`, `idx_lws_intentions_char_seq` (unique per character sequence), `idx_lws_values_sim_char`, `idx_lws_emotions_sim_char`, `idx_lws_emotions_char_time`.
+- **Cognition Modules & Decision Architecture**:
+  - Implemented across 8 modules in `src/living-world/cognition/`: `arbitration.js`, `common.js`, `deliberation.js`, `emotions.js`, `goals.js`, `intentions.js`, `needs.js`, `values.js`.
+  - **Needs Dynamics**: Physiological and psychological need tracking across 5 core dimensions with rate-of-change formulas and acute thresholds ($< 20$). *Note on domain helper*: `evaluateAcuteNeeds()` is a retained direct-SQL domain helper currently reachable only from Phase 7 tests, with no observed production caller. (Architectural warning: this helper must not be introduced into authoritative production simulation execution paths because it mutates state outside the event ledger).
+  - **Goals & Event-Backed Mutations**: 100% event-backed goal mutations via `UPDATE_RUNTIME_STATE` (P0-1 correction). Direct SQL mutations on `lws_character_goals` outside the event pipeline are eliminated. Transitioning a goal to terminal states (`completed`, `abandoned`) automatically cancels active child intentions. Permanent client goal uniqueness is enforced across all states.
+  - **Intentions & Dual Sequence Model**: Deterministic per-character sequence numbers alongside simulation sequence numbers. Failed intentions persist failure state and error reason via `UPDATE_RUNTIME_STATE` (Option B).
+  - **Values & Hard Moral Veto**: Core value alignments $[-100, 100]$ across 6 dimensions. Hard moral veto triggers when an action violates a high positive value ($\ge +75$), causing rejection during deliberation.
+  - **Emotional Dynamics**: Subjective emotional states subject to hyperbolic decay ($I(t) = \frac{I_0}{1 + \Delta t / \tau}$, $\tau = 14400\,\text{s}$).
+  - **Deliberation & Composite Scoring**: Evaluates candidate actions using a composite score incorporating need satisfaction, value alignment, emotional congruence, and plan feasibility.
+  - **Six-Tier Routine Arbitration**: Activates Tier 3 `GOAL_PURSUIT`, arbitrating between Tier 1 `DIRECTOR_OVERRIDE`, Tier 2 `INTERRUPTED`, Tier 3 `GOAL_PURSUIT`, Tier 4 `TRAVEL`, Tier 5 `ROUTINE`, and Tier 6 `IDLE`.
+- **Pure Replay & Field-Level Parity**:
+  - `simulationReducer` in `src/living-world/events/replay.js` handles all cognition state transitions in pure memory with zero SQL queries.
+  - `verifySimulationParity` proves 100% tested field-level parity for the declared Phase 7 cognition state across all 5 cognition tables with zero drift.
+- **REST API (Exact 9-Route Contract)**:
+  - Mounts 9 Phase 7 cognition REST endpoints under `/api/living-world/simulations/:simLwsId/characters/:charLwsId/...` (needs, goals, intentions, values, emotions, deliberation, and perspective). Conforms to exact contract without direct `DELETE /goals/:id` route; soft-deletion is performed via `PATCH /goals/:id` with `{ is_deleted: true }` (P0-2 contract closure).
+- **Verified Git Lineage**:
+  - `3e0d3279338561040cfc44ed06fb522cf8116afe` (Phase 6 Accepted)
+  - `e1709ce9ca17e44c592811a255e99de41263e009` (Phase 7 Initial Implementation)
+  - `f2212206a37d01885ac97cf538060fdcedfb14b1` (Phase 7 Final Contract Closure)
+
+#### 2. Future Scope Distinction (Phase 8+)
+- **Phase 8 Future Scope**: Social systems, relationships, group dynamics, factions, reputation, and emergent social hierarchy.
 
 ## Status labels
 

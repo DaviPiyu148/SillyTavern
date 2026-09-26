@@ -28,6 +28,12 @@
 ## Decisions
 
 `decisions/` contains the accepted ADRs supplied for LWS. They preserve decision rationale; current implementation guidance is reconciled in the documents above.
+- `ADR-001` through `ADR-010`: Foundation and core architecture principles.
+- `ADR-011`: Hybrid Simulation Runtime Identity and Snapshots (Phase 3).
+- `ADR-012`: Authoritative Event Ledger and State Transitions (Phase 4).
+- `ADR-013`: Temporal Progression, Schedules, Routines, and Travel (Phase 5).
+- `ADR-014`: Perception, Knowledge, Memory, and Observation (Phase 6).
+- `ADR-015`: Character Cognition, Goals, Values, Emotions, and Decision Making (Phase 7).
 
 ## Task routing
 
@@ -36,6 +42,9 @@ Read `ARCHITECTURE.md`, `CURRENT_ARCHITECTURE_RECONCILIATION.md`, and `REPOSITOR
 
 ### Simulation behavior
 Read `DOMAIN_RULES.md`, `SIMULATION_MODEL.md`, and `EVENT_AND_TIME_MODEL.md`.
+
+### Cognition, goals, and decisions
+Read `SIMULATION_MODEL.md`, `decisions/ADR-015-character-cognition-and-decision-making.md`, and `PERSISTENCE.md`.
 
 ### LLM generation / prompting
 Read `PROMPT_AND_CONTEXT.md`, `SILLYTAVERN_INTEGRATION.md`, and `DOMAIN_RULES.md`.
