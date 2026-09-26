@@ -191,7 +191,7 @@ All authoritative domain state mutations and backend-backed simulation operation
 | | Social intervention | `POST /api/living-world/simulations/:simLwsId/social-interventions` | `{ social_state, actor_character_id?, target_character_id?, rationale? }` |
 | | Env intervention | `POST /api/living-world/simulations/:simLwsId/environment-interventions` | `{ location_lws_id, operational_state?, environment?, reason? }` |
 | | Entity promotion | `POST /api/living-world/simulations/:simLwsId/promotions` | `{ transient_id, target_tier, authored_character_lws_id?, reason? }` |
-| | Raw narrative event | `POST /api/living-world/simulations/:simLwsId/events` | `{ event_type: "DIRECTOR_EVENT", payload: { narrative: "..." } }` |
+| | Raw narrative event | `POST /api/living-world/simulations/:simLwsId/events` | `{ event_type: "DIRECTOR_NOTE", payload: { note: "...", narrative: "..." } }` |
 
 ---
 
@@ -277,7 +277,7 @@ All authoritative domain state mutations and backend-backed simulation operation
 ### 6.2 Authoritative Director Operation Mapping
 In accordance with Phase 4 (`ADR-012`) and Phase 5 (`ADR-013`), LWS enforces a strict **One Authoritative Path** policy:
 - Generic `POST /simulations/:simLwsId/events` rejects mutation types that have dedicated domain routes with HTTP `422 Unprocessable Entity (DEDICATED_ROUTE_REQUIRED)`.
-- Generic `POST /events` is permitted **only** for non-stateful narrative annotations (`event_type: "DIRECTOR_EVENT"`, payload: `{ narrative: "..." }`).
+- Generic `POST /events` is permitted **only** for non-stateful narrative annotations (`event_type: "DIRECTOR_NOTE"`, payload: `{ note: "...", narrative: "..." }`).
 - All Director Console controls and slash commands invoke dedicated domain endpoints:
 
 | Director Action | Slash Command | Canonical Dedicated Route | Payload / Parameters |
@@ -285,7 +285,7 @@ In accordance with Phase 4 (`ADR-012`) and Phase 5 (`ADR-013`), LWS enforces a s
 | **Advance Time** | `/lws-time advance 1h` | `POST /simulations/:id/time-advance` | `{ advance_seconds: 3600 }` |
 | **Set Fictional Clock** | `/lws-time-set [timestamp]` | `POST /simulations/:id/time-advance` | `{ target_fictional_time: "..." }` |
 | **Switch Camera** | `/lws-camera follow [char]` | `POST /simulations/:id/camera` | `{ mode: 'follow_character', target_character_lws_id: '...' }` |
-| **Narrative Annotation** | `/lws-director note [text]` | `POST /simulations/:id/events` | `{ event_type: 'DIRECTOR_EVENT', payload: { narrative: '...' } }` |
+| **Narrative Annotation** | `/lws-director note [text]` | `POST /simulations/:id/events` | `{ event_type: 'DIRECTOR_NOTE', payload: { note: '...', narrative: '...' } }` |
 | **Override Need** | `/lws-director need [char] [name] [val]` | `PUT /simulations/:id/characters/:charId/needs/:needName` | `{ value: 80, reason: 'Director override' }` |
 | **Inject Belief** | `/lws-director belief [char] [key] [text]` | `PUT /simulations/:id/characters/:charId/beliefs/:subjectKey` | `{ belief_text: '...', confidence: 90, evidence_type: 'DIRECTOR' }` |
 | **Inject Goal** | `/lws-director goal [char] [title]` | `POST /simulations/:id/characters/:charId/goals` | `{ title: '...', description: '...', priority: 80, category: 'ACUTE' }` |
