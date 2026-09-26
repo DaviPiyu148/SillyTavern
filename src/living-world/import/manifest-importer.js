@@ -37,6 +37,10 @@ export function parseManifestInput(input) {
         throw new LwsValidationError('Manifest input must be a string or object', ['input']);
     }
 
+    if (Buffer.byteLength(input, 'utf8') > 2 * 1024 * 1024) {
+        throw new LwsValidationError('Manifest input exceeds maximum allowed size of 2 MB', ['input']);
+    }
+
     const trimmed = input.trim();
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
         try {
@@ -49,7 +53,7 @@ export function parseManifestInput(input) {
     try {
         const parsed = yaml.parse(trimmed, {
             customTags: [],
-            maxAliasCount: 100,
+            maxAliasCount: 50,
             merge: true,
         });
         if (!parsed || typeof parsed !== 'object') {

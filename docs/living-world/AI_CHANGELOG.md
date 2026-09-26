@@ -38,15 +38,15 @@ Implemented complete import, normalization, provenance, conflict resolution, pre
 1. **Import & Normalization Subsystem (`src/living-world/import/`):**
    - `common.js`: Unicode NFC normalization (`normalizeUnicode`), prototype pollution sanitizer (`sanitizePrototype`), RFC 8785 canonical JSON serializer (`canonicalizeJson`), 10-table canonical preview state hash (`computePreviewStateHash`), HMAC-SHA256 preview token generator and verifier (`generatePreviewToken`, `verifyPreviewToken`), and provenance record builder (`createProvenance`).
    - `card-importer.js`: Multi-format SillyTavern Character Card normalizer (`normalizeCharacterCard`) supporting V1, V2, V3 JSON and binary PNG metadata chunks (`ccv3` with fallback to `chara`), comprehensive 22-field mapping, vendor unmapped field preservation, and derived `first_mes` fallback.
-   - `worldinfo-importer.js`: Lorebook normalizer (`normalizeWorldInfo`) evaluating entries across 5 structural dimensions ($S_{\text{rule}}, S_{\text{loc}}, S_{\text{fac}}, S_{\text{arch}}, S_{\text{char}}$) with strict ambiguity detection ($\Delta_{\text{margin}} < 0.25$) and conservative flavor fallback into `candidate_entities.lore_entries` ("Lore is not physical reality").
-   - `manifest-importer.js`: Canonical LWS World Manifest (`lws_world_manifest_v1`) parser, validator (`validateWorldManifest` enforcing cardinality bounds and location acyclicity $\le 10$ levels deep), exporter (`exportWorldManifest`), and round-trip parity comparator (`compareManifestParity`).
+   - `worldinfo-importer.js`: Lorebook normalizer (`normalizeWorldInfo`) evaluating entries across 5 structural dimensions ($S_{\text{rule}}, S_{\text{loc}}, S_{\text{fac}}, S_{\text{arch}}, S_{\text{char}}$) with strict ambiguity detection ($\Delta_{\text{margin}} < 0.20$) and conservative flavor fallback into `candidate_entities.lore_entries` ("Lore is not physical reality").
+   - `manifest-importer.js`: Canonical LWS World Manifest (`lws_world_manifest_v1`) parser, validator (`validateWorldManifest` enforcing cardinality bounds, `maxAliasCount: 50`, 2 MB input bound, and location acyclicity $\le 10$ levels deep), exporter (`exportWorldManifest`), and round-trip parity comparator (`compareManifestParity`).
    - `freeform-importer.js`: Markdown and unstructured outline parser (`parseFreeformOutline`) supporting section headings and direct typed headings (`## Location: ...`, `## Faction: ...`, `## Character: ...`, `## Rule: ...`).
    - `ai-normalizer.js`: AI-assisted normalization pipeline with negative no-invention prompt contract, timeout cleanup, and heuristic fallback.
    - `conflicts.js`: Active collision detector (`detectCollisions`) across all 10 authored tables, conflict object generator (`createConflictObject`), incremental name disambiguator (`generateDisambiguatedName`), and explicit field merge functions (`mergeCharacterEntities`, `mergeWorldEntities`, `mergeLocationEntities`, `mergeFactionEntities`).
    - `authoring.js`: Multi-entity preview generator (`previewImport`) and atomic SQLite transaction commit manager (`commitImport`) enforcing in-transaction TOCTOU verification against HMAC preview tokens under SQLite `EXCLUSIVE` locking.
 
 2. **REST Transport (`src/endpoints/living-world.js`):**
-   - Mounted exactly 9 REST endpoints with multer 10MB memoryStorage and yamlBodyParser middleware:
+   - Mounted exactly 9 REST endpoints with multer 10MB memoryStorage and yamlBodyParser (2MB limit) middleware:
      - `POST /api/living-world/import/character/preview`
      - `POST /api/living-world/worlds/:worldLwsId/import/character`
      - `POST /api/living-world/import/worldinfo/preview`
@@ -58,7 +58,7 @@ Implemented complete import, normalization, provenance, conflict resolution, pre
      - `GET /api/living-world/worlds/:worldLwsId/export/manifest`
 
 3. **Dedicated Test Suites (`tests/living-world/`):**
-   - 8 dedicated Phase 11 test suites passing (78/78 tests):
+   - 8 dedicated Phase 11 test suites passing (74/74 tests):
      - `lws-provenance.test.js` (16 passed)
      - `lws-card-importer.test.js` (10 passed)
      - `lws-worldinfo-importer.test.js` (9 passed)

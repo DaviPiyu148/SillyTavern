@@ -301,9 +301,9 @@ The merge policy is an **explicit, field-by-field merge** defined as follows:
 - **Interchange Format Standard:**
   - **Canonical Standard:** JSON (`application/json`) is the primary, required interchange format.
   - **Optional YAML Support:** Handled via router-local middleware and parsed using the repository's `yaml` dependency (`yaml` v2.8.3, minimum supported `^2.0.0`):
-    - Router-local text parser: `express.text({ type: ['application/x-yaml', 'text/yaml', 'text/plain'], limit: '10mb' })` mounted on manifest import routes in `src/endpoints/living-world.js`.
-    - Strict parser options: `yaml.parse(text, { customTags: [], maxAliasCount: 100, merge: true })`.
-    - Security: Custom code tags prohibited; prototype-pollution filtered (`__proto__`, `constructor`, `prototype` stripped); max alias count limited to 100 and max depth 10 to prevent YAML bomb/Billion Laughs denial of service; payload limit 10 MB.
+    - Router-local text parser: `express.text({ type: ['application/x-yaml', 'text/yaml', 'text/plain'], limit: '2mb' })` mounted on manifest import routes in `src/endpoints/living-world.js`.
+    - Strict parser options: `yaml.parse(text, { customTags: [], maxAliasCount: 50, merge: true })`.
+    - Security: Custom code tags prohibited; prototype-pollution filtered (`__proto__`, `constructor`, `prototype` stripped); max alias count limited to 50 and max depth 10 to prevent YAML bomb/Billion Laughs denial of service; payload limit 2 MB.
     - Malformed YAML syntax returns HTTP 400 (`code: 'LWS_UNSUPPORTED_FORMAT'`).
 - **Original Roadmap Basis:** Fulfills `PHASE_DEVELOPMENT_PLAN.md` Phase 11 requirement for "authored world/character creation workflow" and "canonical LWS entities are valid and reusable."
 

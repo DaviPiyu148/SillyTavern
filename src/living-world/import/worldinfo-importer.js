@@ -91,11 +91,13 @@ export function classifyLoreEntry(entry) {
 
     if (maxScore >= 0.80 && margin >= 0.20) {
         topCategory = sorted[0][0];
-    } else if (maxScore >= 0.50 && margin < 0.25) {
+        isAmbiguous = false;
+    } else if (maxScore >= 0.50 && margin < 0.20) {
         topCategory = sorted[0][0];
         isAmbiguous = true;
     } else {
         topCategory = 'lore';
+        isAmbiguous = false;
     }
 
     return {

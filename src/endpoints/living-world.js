@@ -153,7 +153,7 @@ const upload = multer({
 
 const yamlBodyParser = express.text({
     type: ['application/x-yaml', 'text/yaml', 'text/plain'],
-    limit: '10mb',
+    limit: '2mb',
 });
 
 /**
