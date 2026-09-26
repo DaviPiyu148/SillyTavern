@@ -109,7 +109,7 @@ describe('Real SillyTavern Host Routing and Authentication Integration', () => {
 
         const data = await response.json();
         expect(data.initialized).toBe(true);
-        expect(data.schemaVersion).toBe(8);
+        expect(data.schemaVersion).toBe(9);
     });
 
     test('authenticated request reaches /api/living-world/ping through ST setupPrivateEndpoints', async () => {

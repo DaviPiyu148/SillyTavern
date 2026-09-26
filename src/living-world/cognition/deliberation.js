@@ -398,7 +398,26 @@ export function calculateProposalScore(proposal, characterOrState, needsArg, goa
     const resourceDeficit = calculateResourceDeficit(proposal, character, currentLoc);
     const travelTimeCost = calculateTravelTimeCost(proposal, character, locationsById);
     const procrastinationPenalty = calculateProcrastinationPenalty(proposal, character, actionClass, values, needs);
-    const penalty = resourceDeficit + travelTimeCost + procrastinationPenalty;
+
+    // Phase 9: Environmental & Operational Feasibility Penalties
+    let environmentPenalty = 0;
+    const env = context.environment || currentLoc?.environment || null;
+    if (env) {
+        const weather = env.weather;
+        if (weather === 'storm' || weather === 'blizzard' || weather === 'heavy_rain') {
+            if (actionType === 'MOVE_CHARACTER' || actionClass === 'TRAVEL' || proposal.is_outdoor) {
+                environmentPenalty += 20;
+            }
+        }
+    }
+    const ops = context.operational_state || context.operationalState || currentLoc?.operational_state || null;
+    if (ops && (ops.access_status === 'closed' || ops.access_status === 'barricaded')) {
+        if (actionType === 'MOVE_CHARACTER' && !proposal.payload?.has_key && !proposal.payload?.bypass_access) {
+            environmentPenalty += 100;
+        }
+    }
+
+    const penalty = resourceDeficit + travelTimeCost + procrastinationPenalty + environmentPenalty;
 
     // 7. Social Utility U_social (Phase 8)
     const target = getProposalTarget(proposal);

@@ -221,14 +221,16 @@ export function validateProposalSchema(proposal) {
             break;
 
         case EVENT_TYPES.UPDATE_RUNTIME_STATE:
-            if (!proposal.actor_character_id) {
-                throw new LwsValidationError('actor_character_id is required for UPDATE_RUNTIME_STATE', ['actor_character_id']);
+            if (!proposal.actor_character_id && !proposal.location_id && !payload.environment && !payload.operational_state) {
+                throw new LwsValidationError('actor_character_id or location_id is required for UPDATE_RUNTIME_STATE', ['actor_character_id']);
             }
             if ((!payload.patch || typeof payload.patch !== 'object' || Array.isArray(payload.patch)) &&
                 (!payload.cognition || typeof payload.cognition !== 'object' || Array.isArray(payload.cognition)) &&
                 (!payload.social || typeof payload.social !== 'object' || Array.isArray(payload.social)) &&
-                (!payload.social_state || typeof payload.social_state !== 'object' || Array.isArray(payload.social_state))) {
-                throw new LwsValidationError('payload.patch, payload.cognition, payload.social, or payload.social_state must be an object', ['payload.patch']);
+                (!payload.social_state || typeof payload.social_state !== 'object' || Array.isArray(payload.social_state)) &&
+                (!payload.environment || typeof payload.environment !== 'object' || Array.isArray(payload.environment)) &&
+                (!payload.operational_state || typeof payload.operational_state !== 'object' || Array.isArray(payload.operational_state))) {
+                throw new LwsValidationError('payload.patch, payload.cognition, payload.social, payload.social_state, payload.environment, or payload.operational_state must be an object', ['payload.patch']);
             }
             break;
 
@@ -274,8 +276,8 @@ export function validateProposalSchema(proposal) {
             if (!proposal.actor_character_id) {
                 throw new LwsValidationError(`actor_character_id is required for ${proposal.event_type}`, ['actor_character_id']);
             }
-            if (!proposal.target_character_id) {
-                throw new LwsValidationError(`target_character_id is required for ${proposal.event_type}`, ['target_character_id']);
+            if (!proposal.target_character_id && !payload.target_ambient_id) {
+                throw new LwsValidationError(`target_character_id or payload.target_ambient_id is required for ${proposal.event_type}`, ['target_character_id']);
             }
             if (!proposal.location_id) {
                 throw new LwsValidationError(`location_id is required for ${proposal.event_type}`, ['location_id']);

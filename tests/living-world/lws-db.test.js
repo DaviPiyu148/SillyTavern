@@ -16,9 +16,9 @@ describe('LWS Database Foundation and Migrations', () => {
         }
     });
 
-    test('applies migrations 001 through 008 and sets PRAGMA user_version to 8', () => {
+    test('applies migrations 001 through 009 and sets PRAGMA user_version to 9', () => {
         const userVersion = memoryDb.pragma('user_version', { simple: true });
-        expect(userVersion).toBe(8);
+        expect(userVersion).toBe(9);
     });
 
     test('creates lws_meta table and stores initialized_at metadata', () => {
@@ -34,7 +34,7 @@ describe('LWS Database Foundation and Migrations', () => {
         expect(row.value.length).toBeGreaterThan(0);
     });
 
-    test('creates all Phase 2 authored tables, Phase 7 cognition tables, and Phase 8 social tables', () => {
+    test('creates all Phase 2 authored tables, Phase 7 cognition tables, Phase 8 social tables, and Phase 9 environment/population tables', () => {
         const tables = memoryDb.prepare('SELECT name FROM sqlite_master WHERE type=\'table\'').all();
         const tableNames = tables.map(t => t.name);
 
@@ -59,6 +59,11 @@ describe('LWS Database Foundation and Migrations', () => {
             'lws_social_information',
             'lws_character_faction_memberships',
             'lws_character_development_records',
+            'lws_location_environments',
+            'lws_location_operational_states',
+            'lws_ambient_archetypes',
+            'lws_promoted_entity_records',
+            'lws_simulation_character_tiers',
         ];
 
         for (const t of expectedTables) {
@@ -92,10 +97,10 @@ describe('LWS Database Foundation and Migrations', () => {
 
     test('migrations are idempotent and do not fail or alter version when re-executed', () => {
         const versionBefore = memoryDb.pragma('user_version', { simple: true });
-        expect(versionBefore).toBe(8);
+        expect(versionBefore).toBe(9);
 
         const versionAfter = runMigrations(memoryDb);
-        expect(versionAfter).toBe(8);
+        expect(versionAfter).toBe(9);
 
         const count = memoryDb.prepare('SELECT COUNT(*) as cnt FROM lws_meta').get();
         expect(count.cnt).toBe(1);
@@ -135,7 +140,7 @@ describe('LWS Database Foundation and Migrations', () => {
             // Reopen the same file
             const reopenedDb = new Database(dbPath);
             const userVersion = reopenedDb.pragma('user_version', { simple: true });
-            expect(userVersion).toBe(8);
+            expect(userVersion).toBe(9);
 
             const row = reopenedDb.prepare('SELECT value FROM lws_meta WHERE key = ?').get('test_key');
             expect(row?.value).toBe('test_val');

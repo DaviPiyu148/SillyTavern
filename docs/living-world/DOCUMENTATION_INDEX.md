@@ -35,6 +35,7 @@
 - `ADR-014`: Perception, Knowledge, Memory, and Observation (Phase 6).
 - `ADR-015`: Character Cognition, Goals, Values, Emotions, and Decision Making (Phase 7).
 - `ADR-016`: Social Systems, Dynamic Relationships, Rumors, Factions, and Character Development (Phase 8).
+- `ADR-017`: Living World, Population Tiers, Environmental Dynamics, Operational States, and Emergence (Phase 9).
 
 ## Task routing
 
@@ -49,6 +50,9 @@ Read `SIMULATION_MODEL.md`, `decisions/ADR-015-character-cognition-and-decision-
 
 ### Social systems, rumors, factions, and character development
 Read `SIMULATION_MODEL.md`, `decisions/ADR-016-social-systems-and-character-development.md`, `SECURITY.md`, and `PERSISTENCE.md`.
+
+### Population tiers, ambient crowds, environment, and operational states
+Read `SIMULATION_MODEL.md`, `decisions/ADR-017-living-world-population-environment-and-emergence.md`, `SECURITY.md`, and `PERSISTENCE.md`.
 
 ### LLM generation / prompting
 Read `PROMPT_AND_CONTEXT.md`, `SILLYTAVERN_INTEGRATION.md`, and `DOMAIN_RULES.md`.

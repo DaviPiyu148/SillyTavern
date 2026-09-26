@@ -105,6 +105,24 @@ import {
     getCharacterFactionMemberships,
     listSimulationFactionMemberships,
     listCharacterDevelopmentRecords,
+    createAmbientArchetype,
+    getAmbientArchetypeByLwsId,
+    listAmbientArchetypes,
+    updateAmbientArchetype,
+    deleteAmbientArchetype,
+    getLocationEnvironment,
+    updateLocationEnvironment,
+    getLocationOperationalState,
+    updateLocationOperationalState,
+    generateAmbientPopulation,
+    getTimeBucket,
+    getCharacterTier,
+    setCharacterTier,
+    elevateCharacterTier,
+    listCharacterTiers,
+    validateTransientIdExistence,
+    listPromotedEntities,
+    getPromotedEntityByTransientId,
     EVENT_TYPES,
     getDb,
 } from '../living-world/index.js';
@@ -1906,6 +1924,371 @@ router.post('/simulations/:simLwsId/social-interventions', (req, res) => {
         });
     } catch (err) {
         return handleRouteError(err, res, 'POST /simulations/:simLwsId/social-interventions');
+    }
+});
+
+// ============================================================================
+// Phase 9: Living World, Population, Environment, and Emergence
+// ============================================================================
+
+// --- Authored Ambient Archetypes (World-Scoped) ---
+
+// 1. POST /worlds/:worldLwsId/ambient-archetypes
+router.post('/worlds/:worldLwsId/ambient-archetypes', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ worldLwsId: req.params.worldLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const archetype = createAmbientArchetype(db, req.params.worldLwsId, req.body ?? {});
+        return res.status(201).json(archetype);
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /worlds/:worldLwsId/ambient-archetypes');
+    }
+});
+
+// 2. GET /worlds/:worldLwsId/ambient-archetypes
+router.get('/worlds/:worldLwsId/ambient-archetypes', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ worldLwsId: req.params.worldLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const archetypes = listAmbientArchetypes(db, req.params.worldLwsId, {
+            limit: req.query.limit,
+            offset: req.query.offset,
+        });
+        return res.json({ ambient_archetypes: archetypes });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /worlds/:worldLwsId/ambient-archetypes');
+    }
+});
+
+// 3. GET /worlds/:worldLwsId/ambient-archetypes/:archetypeLwsId
+router.get('/worlds/:worldLwsId/ambient-archetypes/:archetypeLwsId', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ worldLwsId: req.params.worldLwsId, archetypeLwsId: req.params.archetypeLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const archetype = getAmbientArchetypeByLwsId(db, req.params.archetypeLwsId);
+        return res.json(archetype);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /worlds/:worldLwsId/ambient-archetypes/:archetypeLwsId');
+    }
+});
+
+// 4. PATCH /worlds/:worldLwsId/ambient-archetypes/:archetypeLwsId
+router.patch('/worlds/:worldLwsId/ambient-archetypes/:archetypeLwsId', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ worldLwsId: req.params.worldLwsId, archetypeLwsId: req.params.archetypeLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const archetype = updateAmbientArchetype(db, req.params.worldLwsId, req.params.archetypeLwsId, req.body ?? {});
+        return res.json(archetype);
+    } catch (err) {
+        return handleRouteError(err, res, 'PATCH /worlds/:worldLwsId/ambient-archetypes/:archetypeLwsId');
+    }
+});
+
+// 5. DELETE /worlds/:worldLwsId/ambient-archetypes/:archetypeLwsId
+router.delete('/worlds/:worldLwsId/ambient-archetypes/:archetypeLwsId', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ worldLwsId: req.params.worldLwsId, archetypeLwsId: req.params.archetypeLwsId }, res)) return;
+    try {
+        const db = getDb();
+        deleteAmbientArchetype(db, req.params.worldLwsId, req.params.archetypeLwsId);
+        return res.status(204).send();
+    } catch (err) {
+        return handleRouteError(err, res, 'DELETE /worlds/:worldLwsId/ambient-archetypes/:archetypeLwsId');
+    }
+});
+
+// --- Tier 1: Observer API ---
+
+// 6. GET /simulations/:simLwsId/locations/:locLwsId/environment
+router.get('/simulations/:simLwsId/locations/:locLwsId/environment', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, locLwsId: req.params.locLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const loc = db.prepare('SELECT id FROM lws_locations WHERE lws_id = ? AND world_id = ?').get(req.params.locLwsId, sim.world_id);
+        if (!loc) throw new LwsNotFoundError('Location not found in world');
+
+        const env = getLocationEnvironment(db, sim.id, loc.id, sim.current_fictional_time);
+        return res.json(env);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/locations/:locLwsId/environment');
+    }
+});
+
+// 7. GET /simulations/:simLwsId/locations/:locLwsId/operational-state
+router.get('/simulations/:simLwsId/locations/:locLwsId/operational-state', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, locLwsId: req.params.locLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const loc = db.prepare('SELECT id FROM lws_locations WHERE lws_id = ? AND world_id = ?').get(req.params.locLwsId, sim.world_id);
+        if (!loc) throw new LwsNotFoundError('Location not found in world');
+
+        const ops = getLocationOperationalState(db, sim.id, loc.id, sim.current_fictional_time);
+        return res.json(ops);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/locations/:locLwsId/operational-state');
+    }
+});
+
+// 8. GET /simulations/:simLwsId/locations/:locLwsId/ambient-population
+router.get('/simulations/:simLwsId/locations/:locLwsId/ambient-population', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, locLwsId: req.params.locLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const world = db.prepare('SELECT id, lws_id FROM lws_worlds WHERE id = ?').get(sim.world_id);
+        const loc = db.prepare('SELECT id, lws_id FROM lws_locations WHERE lws_id = ? AND world_id = ?').get(req.params.locLwsId, sim.world_id);
+        if (!loc) throw new LwsNotFoundError('Location not found in world');
+
+        const env = getLocationEnvironment(db, sim.id, loc.id, sim.current_fictional_time);
+        const ops = getLocationOperationalState(db, sim.id, loc.id, sim.current_fictional_time);
+        const archetypes = listAmbientArchetypes(db, world.lws_id);
+
+        const activeSimChars = db.prepare(`
+            SELECT sc.lws_id, c.name
+            FROM lws_simulation_characters sc
+            JOIN lws_characters c ON sc.character_id = c.id
+            WHERE sc.simulation_id = ? AND sc.current_location_id = ? AND sc.deleted_at IS NULL
+        `).all(sim.id, loc.id);
+
+        const timeBucket = getTimeBucket(sim.current_fictional_time);
+        const ambientPop = generateAmbientPopulation(
+            sim.lws_id,
+            loc.lws_id,
+            timeBucket,
+            world.lws_id,
+            env,
+            ops,
+            archetypes,
+            activeSimChars,
+        );
+
+        return res.json({
+            simulation_id: sim.lws_id,
+            location_id: loc.lws_id,
+            time_bucket: timeBucket,
+            ambient_population: ambientPop,
+        });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/locations/:locLwsId/ambient-population');
+    }
+});
+
+// 9. GET /simulations/:simLwsId/population-tiers
+router.get('/simulations/:simLwsId/population-tiers', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const tiers = listCharacterTiers(db, sim.id);
+        return res.json({ character_tiers: tiers });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/population-tiers');
+    }
+});
+
+// 10. GET /simulations/:simLwsId/promoted-entities
+router.get('/simulations/:simLwsId/promoted-entities', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const records = listPromotedEntities(db, sim.id);
+        return res.json({ promoted_entities: records });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/promoted-entities');
+    }
+});
+
+// --- Tier 2: Subjective Character API ---
+
+// 11. GET /simulations/:simLwsId/characters/:charLwsId/perceived-environment
+router.get('/simulations/:simLwsId/characters/:charLwsId/perceived-environment', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const char = ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+
+        if (!char.current_location_id) {
+            return res.json({
+                character_id: char.lws_id,
+                location_id: null,
+                environment: null,
+                operational_state: null,
+                perceived_sensory: null,
+            });
+        }
+
+        const loc = db.prepare('SELECT id, lws_id FROM lws_locations WHERE id = ?').get(char.current_location_id);
+        const env = getLocationEnvironment(db, sim.id, char.current_location_id, sim.current_fictional_time);
+        const ops = getLocationOperationalState(db, sim.id, char.current_location_id, sim.current_fictional_time);
+
+        // Calculate sensory modulation
+        let visualClarity = 'normal';
+        if (env.lighting_level === 'pitch_black' || env.lighting_level === 'dark') {
+            visualClarity = 'obscured';
+        } else if (env.weather === 'storm' || env.weather === 'blizzard' || env.weather === 'heavy_rain') {
+            visualClarity = 'low';
+        }
+
+        let auditoryClarity = 'normal';
+        if (env.noise_level === 'deafening' || env.noise_level === 'loud') {
+            auditoryClarity = 'masked';
+        }
+
+        return res.json({
+            character_id: char.lws_id,
+            location_id: loc?.lws_id || null,
+            environment: env,
+            operational_state: ops,
+            perceived_sensory: {
+                visual_clarity: visualClarity,
+                auditory_clarity: auditoryClarity,
+                temperature_feeling: env.temperature_celsius < 5 ? 'cold' : (env.temperature_celsius > 30 ? 'hot' : 'comfortable'),
+                weather_impact: env.weather === 'storm' || env.weather === 'blizzard' ? 'severe' : 'normal',
+                is_accessible: ops.access_status === 'open',
+            },
+        });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/perceived-environment');
+    }
+});
+
+// --- Tier 3: Director Authority API ---
+
+// 12. POST /simulations/:simLwsId/environment-interventions
+router.post('/simulations/:simLwsId/environment-interventions', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureMutableSimulation(db, req.params.simLwsId);
+
+        const body = req.body || {};
+        if (!body.environment && !body.operational_state) {
+            throw new LwsValidationError('Environment intervention requires environment or operational_state payload', ['environment']);
+        }
+
+        const event = commitEvent(req.params.simLwsId, {
+            event_type: EVENT_TYPES.DIRECTOR_MODIFY_STATE,
+            location_id: body.location_id || null,
+            fictional_time: sim.current_fictional_time,
+            payload: {
+                target: body.environment ? 'location_environment' : 'location_operational_state',
+                location_id: body.location_id || null,
+                environment: body.environment,
+                operational_state: body.operational_state,
+                rationale: body.rationale || 'Director environment intervention',
+            },
+            provenance: 'director',
+        }, { isDedicatedRoute: true, isAdmin: true });
+
+        return res.status(201).json({
+            event,
+            status: 'committed',
+        });
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/environment-interventions');
+    }
+});
+
+// 13. POST /simulations/:simLwsId/promotions
+router.post('/simulations/:simLwsId/promotions', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureMutableSimulation(db, req.params.simLwsId);
+        const body = req.body || {};
+
+        if (body.transient_id) {
+            // Transient ambient entity promotion to Supporting / Core tier
+            const validation = validateTransientIdExistence(db, sim.id, body.transient_id, sim.current_fictional_time);
+            if (!validation.valid) {
+                throw new LwsValidationError(`Transient ID validation failed: ${validation.reason}`, ['transient_id']);
+            }
+
+            const targetTier = body.target_tier || 'supporting';
+            const charName = body.name || `${validation.archetype?.name || 'Unknown'} (Promoted)`;
+
+            const world = db.prepare('SELECT id, lws_id FROM lws_worlds WHERE id = ?').get(sim.world_id);
+            const createdChar = createCharacter(world.lws_id, {
+                name: charName,
+                description: body.summary || body.description || validation.archetype?.description || 'Promoted entity',
+                personality: body.personality || 'Neutral personality',
+            });
+            const charLwsId = createdChar.lws_id;
+
+            const event = commitEvent(req.params.simLwsId, {
+                event_type: EVENT_TYPES.CHARACTER_JOIN,
+                actor_character_id: charLwsId,
+                location_id: validation.location_lws_id,
+                fictional_time: sim.current_fictional_time,
+                payload: {
+                    character_id: charLwsId,
+                    activity: 'idle',
+                    physical_condition: 'normal',
+                    tier: targetTier,
+                    promotion: {
+                        source_archetype_key: validation.archetype_key,
+                        source_transient_id: body.transient_id,
+                        promotion_reason: body.promotion_reason || 'director_intervention',
+                        promoted_to_tier: targetTier,
+                    },
+                },
+                provenance: 'director',
+            }, { isDedicatedRoute: true, isAdmin: true });
+
+            return res.status(201).json({
+                event,
+                character_id: charLwsId,
+                tier: targetTier,
+                status: 'promoted',
+            });
+        }
+
+        if (body.character_id || body.simulation_character_id) {
+            const charLwsId = body.character_id || body.simulation_character_id;
+            const targetTier = body.target_tier || 'core';
+            const char = ensureSimulationCharacter(db, sim.id, charLwsId);
+
+            const event = commitEvent(req.params.simLwsId, {
+                event_type: EVENT_TYPES.DIRECTOR_MODIFY_STATE,
+                actor_character_id: char.lws_id,
+                fictional_time: sim.current_fictional_time,
+                payload: {
+                    target: 'character_tier',
+                    target_id: char.lws_id,
+                    tier_elevation: targetTier,
+                    tier: targetTier,
+                    rationale: body.rationale || 'Director character tier elevation',
+                },
+                provenance: 'director',
+            }, { isDedicatedRoute: true, isAdmin: true });
+
+            return res.status(200).json({
+                event,
+                character_id: char.lws_id,
+                tier: targetTier,
+                status: 'elevated',
+            });
+        }
+
+        throw new LwsValidationError('Promotion requires transient_id or character_id', ['transient_id', 'character_id']);
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/promotions');
     }
 });
 

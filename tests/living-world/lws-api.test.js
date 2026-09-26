@@ -48,7 +48,7 @@ describe('LWS API Endpoints (Unit / Transport Level)', () => {
 
         const data = await response.json();
         expect(data.initialized).toBe(true);
-        expect(data.schemaVersion).toBe(8);
+        expect(data.schemaVersion).toBe(9);
     });
 
     test('POST /api/living-world/ping returns HTTP 200 with pong and timestamp when healthy', async () => {

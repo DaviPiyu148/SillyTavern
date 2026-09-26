@@ -49,7 +49,7 @@ export function evaluateAuthority(db, sim, proposal, callerContext = {}) {
 
     let actorInternalId = null;
     let actorRow = null;
-    if (proposal.actor_character_id) {
+    if (proposal.actor_character_id && proposal.event_type !== EVENT_TYPES.CHARACTER_JOIN) {
         actorRow = db.prepare(`
             SELECT id, lws_id, simulation_id, character_id, current_location_id,
                    activity, physical_condition, runtime_state, authored_snapshot, deleted_at
@@ -197,7 +197,7 @@ export function evaluateAuthority(db, sim, proposal, callerContext = {}) {
 
     // 4. Fictional Clock Authority (Three-class model)
     let fictionalTime = proposal.fictional_time ?? sim.current_fictional_time;
-    validateFictionalTimestamp(fictionalTime);
+    fictionalTime = validateFictionalTimestamp(fictionalTime);
 
     if (callerContext.isTimeAdvance) {
         // Consequence event or Root Time Advance
@@ -220,9 +220,10 @@ export function evaluateAuthority(db, sim, proposal, callerContext = {}) {
         }
     } else {
         // Normal / direct event: MUST match simulation current fictional time
-        if (fictionalTime !== sim.current_fictional_time) {
+        const simTime = validateFictionalTimestamp(sim.current_fictional_time);
+        if (fictionalTime !== simTime) {
             throw new LwsAuthorityError(
-                `event fictional_time (${fictionalTime}) must match simulation current_fictional_time (${sim.current_fictional_time})`,
+                `event fictional_time (${fictionalTime}) must match simulation current_fictional_time (${simTime})`,
                 'FICTIONAL_TIME_MISMATCH',
             );
         }
@@ -244,8 +245,12 @@ export function evaluateAuthority(db, sim, proposal, callerContext = {}) {
             throw new LwsAuthorityError('Actor is not at the event location', 'SPATIAL_DISCONNECT');
         }
     } else if (proposal.event_type === EVENT_TYPES.TRANSFER_ITEM || proposal.event_type === EVENT_TYPES.COMBAT_ACTION) {
-        if (actorRow.current_location_id !== targetRow.current_location_id || actorRow.current_location_id !== locationInternalId) {
-            throw new LwsAuthorityError(`Actor and target must be collocated at the event location for ${proposal.event_type}`, 'SPATIAL_DISCONNECT');
+        if (targetRow) {
+            if (actorRow.current_location_id !== targetRow.current_location_id || actorRow.current_location_id !== locationInternalId) {
+                throw new LwsAuthorityError(`Actor and target must be collocated at the event location for ${proposal.event_type}`, 'SPATIAL_DISCONNECT');
+            }
+        } else if (actorRow.current_location_id !== locationInternalId) {
+            throw new LwsAuthorityError(`Actor must be at the event location for ${proposal.event_type}`, 'SPATIAL_DISCONNECT');
         }
     }
 

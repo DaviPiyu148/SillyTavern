@@ -3,6 +3,7 @@ import { LwsValidationError, LwsNotFoundError, LwsConflictError, LwsInvalidState
 import { isValidUuid, isoNow } from '../simulations/common.js';
 import { EVENT_TYPES } from '../events/taxonomy.js';
 import { internalCommitEvent } from '../events/events.js';
+import { getCharacterTier } from '../population/character-tiers.js';
 
 export const GOAL_TYPES = Object.freeze([
     'short_term',
@@ -117,6 +118,11 @@ export function createGoal(db, sim, character, input, options = {}) {
 
     if (!sim) throw new LwsNotFoundError('Simulation not found');
     if (!character) throw new LwsNotFoundError('Character not found');
+
+    const charTier = getCharacterTier(db, sim.id, character.id);
+    if (charTier.tier === 'supporting') {
+        throw new LwsInvalidStateTransitionError('Supporting tier characters cannot have explicit persistent goals', 'SUPPORTING_COGNITION_BLOCKED');
+    }
 
     if (!input || typeof input !== 'object') {
         throw new LwsValidationError('Goal input must be an object');

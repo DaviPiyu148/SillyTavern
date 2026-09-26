@@ -115,5 +115,13 @@ export * from './social/evidence.js';
 export * from './social/rumors.js';
 export * from './social/factions.js';
 export * from './social/development.js';
+export * from './environment/common.js';
+export * from './environment/environment.js';
+export * from './environment/operational-states.js';
+export * from './population/common.js';
+export * from './population/archetypes.js';
+export * from './population/ambient-generator.js';
+export * from './population/character-tiers.js';
+export * from './population/promotion.js';
 
 

@@ -12,6 +12,10 @@ import { applyRelationshipDelta, evaluateFamiliarityDecay } from '../social/rela
 import { createSocialInformation, evaluateBeliefAdoption } from '../social/rumors.js';
 import { updateFactionMembership } from '../social/factions.js';
 import { recordCharacterDevelopment } from '../social/development.js';
+import { calculateDiurnalTemperature, calculateDiurnalLighting, evaluateOperatingHours } from '../environment/common.js';
+import { updateLocationEnvironment } from '../environment/environment.js';
+import { updateLocationOperationalState } from '../environment/operational-states.js';
+import { elevateCharacterTier } from '../population/character-tiers.js';
 
 /**
  * Table-driven state transition handlers for all stateful events.
@@ -133,6 +137,21 @@ export const STATE_TRANSITIONS = {
                     created_at: eventCreatedAt,
                 }, evaluated);
             }
+        }
+
+        // Phase 9: Tier elevation handling
+        if (evaluated.payload?.tier_elevation && evaluated.actor_internal_id) {
+            elevateCharacterTier(db, sim.id, evaluated.actor_internal_id, evaluated.payload.tier_elevation);
+        } else if (evaluated.payload?.tier && evaluated.actor_internal_id) {
+            elevateCharacterTier(db, sim.id, evaluated.actor_internal_id, evaluated.payload.tier);
+        }
+
+        // Phase 9: Environment and operational state updates
+        if (evaluated.payload?.environment && evaluated.location_internal_id) {
+            updateLocationEnvironment(db, sim.id, evaluated.location_internal_id, evaluated.payload.environment, evaluated.fictional_time);
+        }
+        if (evaluated.payload?.operational_state && evaluated.location_internal_id) {
+            updateLocationOperationalState(db, sim.id, evaluated.location_internal_id, evaluated.payload.operational_state, evaluated.fictional_time);
         }
     },
 
@@ -461,6 +480,25 @@ export const STATE_TRANSITIONS = {
                     evaluated.actor_internal_id, sim.id,
                 );
             }
+        }
+
+        // Phase 9: Director Environment, Operational State, and Tier Overrides
+        if (p.environment) {
+            const locId = evaluated.location_internal_id || (p.location_id ? (db.prepare('SELECT id FROM lws_locations WHERE lws_id = ? AND world_id = ?').get(p.location_id, sim.world_id)?.id) : null);
+            if (locId) {
+                updateLocationEnvironment(db, sim.id, locId, p.environment, evaluated.fictional_time);
+            }
+        }
+        if (p.operational_state) {
+            const locId = evaluated.location_internal_id || (p.location_id ? (db.prepare('SELECT id FROM lws_locations WHERE lws_id = ? AND world_id = ?').get(p.location_id, sim.world_id)?.id) : null);
+            if (locId) {
+                updateLocationOperationalState(db, sim.id, locId, p.operational_state, evaluated.fictional_time);
+            }
+        }
+        if (p.tier_elevation && targetCharRow) {
+            elevateCharacterTier(db, sim.id, targetCharRow.id, p.tier_elevation);
+        } else if (p.tier && targetCharRow) {
+            elevateCharacterTier(db, sim.id, targetCharRow.id, p.tier);
         }
     },
 
@@ -819,6 +857,50 @@ export const STATE_TRANSITIONS = {
         `).run(evaluated.fictional_time, eventCreatedAt, sim.id);
 
         evaluateFamiliarityDecay(db, sim.id, sim.lws_id, evaluated.fictional_time, evaluated.event_internal_id, evaluated.event_lws_id, eventCreatedAt);
+
+        // Phase 9: Update derived environment temperature and lighting curves
+        const envRows = db.prepare('SELECT * FROM lws_location_environments WHERE simulation_id = ?').all(sim.id);
+        for (const env of envRows) {
+            const locRow = db.prepare('SELECT * FROM lws_locations WHERE id = ?').get(env.location_id);
+            let isIndoor = Boolean(env.is_indoor);
+            let hasIlluminatedTag = false;
+            if (locRow) {
+                if (locRow.is_indoor !== undefined) isIndoor = Boolean(locRow.is_indoor);
+                let tags = [];
+                try {
+                    tags = typeof locRow.tags === 'string' ? JSON.parse(locRow.tags) : (locRow.tags || []);
+                } catch {
+                    tags = [];
+                }
+                hasIlluminatedTag = tags.includes('illuminated') || tags.includes('lit');
+                if (tags.includes('indoor')) isIndoor = true;
+            }
+            const nextTemp = env.temperature_override !== null
+                ? env.temperature_override
+                : calculateDiurnalTemperature(evaluated.fictional_time, env.temperature_baseline ?? 20.0, isIndoor);
+            const nextLighting = env.lighting_override !== null
+                ? env.lighting_override
+                : calculateDiurnalLighting(evaluated.fictional_time, isIndoor, hasIlluminatedTag, env.weather);
+
+            db.prepare(`
+                UPDATE lws_location_environments
+                SET temperature_celsius = ?, lighting_level = ?, last_evaluated_fictional_time = ?, updated_at = ?
+                WHERE id = ?
+            `).run(nextTemp, nextLighting, evaluated.fictional_time, eventCreatedAt, env.id);
+        }
+
+        // Phase 9: Update derived operational access states
+        const opsRows = db.prepare('SELECT * FROM lws_location_operational_states WHERE simulation_id = ?').all(sim.id);
+        for (const ops of opsRows) {
+            if (ops.access_override === null && ops.operating_hours) {
+                const nextAccess = evaluateOperatingHours(evaluated.fictional_time, ops.operating_hours);
+                db.prepare(`
+                    UPDATE lws_location_operational_states
+                    SET access_status = ?, updated_at = ?
+                    WHERE id = ?
+                `).run(nextAccess, eventCreatedAt, ops.id);
+            }
+        }
     },
 
     [EVENT_TYPES.SCHEDULE_WORLD_EVENT]: (db, sim, evaluated, eventCreatedAt) => {

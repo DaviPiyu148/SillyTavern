@@ -11,7 +11,11 @@ process.env.SILLYTAVERN_EXTENSIONS_ENABLED = 'true';
 
 // The extensions endpoint resolves the built-in extensions folder relative to the repo root
 const originalCwd = process.cwd();
-beforeAll(() => process.chdir(path.resolve(originalCwd, '..')));
+beforeAll(() => {
+    if (path.basename(originalCwd) === 'tests') {
+        process.chdir(path.resolve(originalCwd, '..'));
+    }
+});
 afterAll(() => process.chdir(originalCwd));
 
 describe('extensions discover', () => {

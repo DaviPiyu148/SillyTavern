@@ -7,6 +7,7 @@ import { NEED_NAMES } from '../cognition/needs.js';
 import { VALUE_DIMENSIONS } from '../cognition/values.js';
 import { normalizeEmotionInput } from '../cognition/emotions.js';
 import { calculateFamiliarityDecay, clamp } from '../social/common.js';
+import { calculateDiurnalTemperature, calculateDiurnalLighting, evaluateOperatingHours } from '../environment/common.js';
 
 /**
  * Pure, deterministic in-memory simulation reducer.
@@ -40,6 +41,10 @@ export function simulationReducer(state, event) {
     state.socialInformation = state.socialInformation || {};
     state.factionMemberships = state.factionMemberships || {};
     state.developmentRecords = state.developmentRecords || [];
+    state.characterTiers = state.characterTiers || {};
+    state.promotedEntities = state.promotedEntities || {};
+    state.locationEnvironments = state.locationEnvironments || {};
+    state.locationOperationalStates = state.locationOperationalStates || {};
 
     // Phase 7 Option B: Fold payload.intention on any event
     if (payload.intention && event.actor_character_id) {
@@ -173,6 +178,35 @@ export function simulationReducer(state, event) {
                         joined_fictional_time: event.fictional_time,
                     };
                 }
+            }
+
+            // Phase 9: Record character tier and promotion record
+            const targetTier = payload.tier || payload.promotion?.promoted_to_tier || 'core';
+            const isPromoted = Boolean(payload.promotion || payload.runtime_state?.is_promoted || payload.is_promoted);
+            state.characterTiers[charLwsId] = {
+                lws_id: generateDeterministicUuid('tier', simLwsId, charLwsId),
+                simulation_id: simLwsId,
+                simulation_character_id: charLwsId,
+                tier: targetTier,
+                cognitive_budget: targetTier === 'core' ? 'full' : 'lightweight',
+                is_promoted: isPromoted ? 1 : 0,
+            };
+
+            if (payload.promotion) {
+                const promo = payload.promotion;
+                const promoKey = promo.source_transient_id || charLwsId;
+                state.promotedEntities[promoKey] = {
+                    lws_id: generateDeterministicUuid('promoted_record', simLwsId, charLwsId),
+                    simulation_id: simLwsId,
+                    simulation_character_id: charLwsId,
+                    source_archetype_key: promo.source_archetype_key || 'unknown',
+                    source_transient_id: promo.source_transient_id,
+                    origin_location_id: event.location_id,
+                    promotion_reason: promo.promotion_reason || 'direct_interaction',
+                    causal_event_id: event.causal_event_id,
+                    promoted_to_tier: targetTier,
+                    fictional_time: event.fictional_time,
+                };
             }
             break;
         }
@@ -442,6 +476,83 @@ export function simulationReducer(state, event) {
                         }
                     }
                 }
+            }
+
+            // Phase 9: Tier elevation handling
+            if (actorId && (payload.tier_elevation || payload.tier)) {
+                const nextTier = payload.tier_elevation || payload.tier;
+                if (nextTier === 'core' && state.characterTiers[actorId]) {
+                    state.characterTiers[actorId].tier = 'core';
+                    state.characterTiers[actorId].cognitive_budget = 'full';
+                }
+            }
+
+            // Phase 9: Environment updates
+            if (payload.environment && event.location_id) {
+                const locId = event.location_id;
+                const env = state.locationEnvironments[locId] || {
+                    lws_id: generateDeterministicUuid('loc_env', simLwsId, locId),
+                    simulation_id: simLwsId,
+                    location_id: locId,
+                    weather: 'clear',
+                    temperature_baseline: 20.0,
+                    temperature_celsius: 20.0,
+                    temperature_override: null,
+                    lighting_level: 'normal',
+                    lighting_override: null,
+                    noise_level: 20,
+                    is_indoor: 0,
+                    air_quality: 'clean',
+                    hazards: [],
+                    last_evaluated_fictional_time: event.fictional_time,
+                };
+                const patch = payload.environment;
+                if (patch.weather !== undefined) env.weather = patch.weather;
+                if (patch.temperature_baseline !== undefined) env.temperature_baseline = patch.temperature_baseline;
+                if (patch.temperature_override !== undefined) env.temperature_override = patch.temperature_override;
+                if (patch.lighting_override !== undefined) env.lighting_override = patch.lighting_override;
+                if (patch.noise_level !== undefined) env.noise_level = patch.noise_level;
+                if (patch.is_indoor !== undefined) env.is_indoor = patch.is_indoor ? 1 : 0;
+                if (patch.air_quality !== undefined) env.air_quality = patch.air_quality;
+                if (patch.hazards !== undefined) env.hazards = Array.isArray(patch.hazards) ? patch.hazards : (typeof patch.hazards === 'string' ? safeJsonParse(patch.hazards, []) : []);
+
+                env.temperature_celsius = env.temperature_override !== null
+                    ? env.temperature_override
+                    : calculateDiurnalTemperature(event.fictional_time, env.temperature_baseline ?? 20.0, Boolean(env.is_indoor));
+                env.lighting_level = env.lighting_override !== null
+                    ? env.lighting_override
+                    : calculateDiurnalLighting(event.fictional_time, Boolean(env.is_indoor), false, env.weather);
+                env.last_evaluated_fictional_time = event.fictional_time;
+                state.locationEnvironments[locId] = env;
+            }
+
+            // Phase 9: Operational state updates
+            if (payload.operational_state && event.location_id) {
+                const locId = event.location_id;
+                const ops = state.locationOperationalStates[locId] || {
+                    lws_id: generateDeterministicUuid('loc_ops', simLwsId, locId),
+                    simulation_id: simLwsId,
+                    location_id: locId,
+                    access_status: 'open',
+                    access_override: null,
+                    operating_hours: null,
+                    crowd_density: 'moderate',
+                    ambient_capacity: 50,
+                };
+                const patch = payload.operational_state;
+                if (patch.access_override !== undefined) ops.access_override = patch.access_override;
+                if (patch.operating_hours !== undefined) ops.operating_hours = typeof patch.operating_hours === 'object' ? patch.operating_hours : safeJsonParse(patch.operating_hours, null);
+                if (patch.crowd_density !== undefined) ops.crowd_density = patch.crowd_density;
+                if (patch.ambient_capacity !== undefined) ops.ambient_capacity = patch.ambient_capacity;
+
+                if (ops.access_override !== null) {
+                    ops.access_status = ops.access_override;
+                } else if (ops.operating_hours) {
+                    ops.access_status = evaluateOperatingHours(event.fictional_time, ops.operating_hours);
+                } else if (patch.access_status !== undefined) {
+                    ops.access_status = patch.access_status;
+                }
+                state.locationOperationalStates[locId] = ops;
             }
             break;
         }
@@ -1128,6 +1239,85 @@ export function simulationReducer(state, event) {
                     }
                 }
             }
+
+            // Phase 9: Director Environment, Operational State, and Tier Overrides
+            if (payload.target === 'location_environment' || payload.environment) {
+                const locId = payload.location_id || payload.location_lws_id || event.location_id;
+                if (locId) {
+                    const env = state.locationEnvironments[locId] || {
+                        lws_id: generateDeterministicUuid('loc_env', simLwsId, locId),
+                        simulation_id: simLwsId,
+                        location_id: locId,
+                        weather: 'clear',
+                        temperature_baseline: 20.0,
+                        temperature_celsius: 20.0,
+                        temperature_override: null,
+                        lighting_level: 'normal',
+                        lighting_override: null,
+                        noise_level: 20,
+                        is_indoor: 0,
+                        air_quality: 'clean',
+                        hazards: [],
+                        last_evaluated_fictional_time: event.fictional_time,
+                    };
+                    const patch = payload.environment || payload;
+                    if (patch.weather !== undefined) env.weather = patch.weather;
+                    if (patch.temperature_baseline !== undefined) env.temperature_baseline = patch.temperature_baseline;
+                    if (patch.temperature_override !== undefined) env.temperature_override = patch.temperature_override;
+                    if (patch.lighting_override !== undefined) env.lighting_override = patch.lighting_override;
+                    if (patch.noise_level !== undefined) env.noise_level = patch.noise_level;
+                    if (patch.is_indoor !== undefined) env.is_indoor = patch.is_indoor ? 1 : 0;
+                    if (patch.air_quality !== undefined) env.air_quality = patch.air_quality;
+                    if (patch.hazards !== undefined) env.hazards = Array.isArray(patch.hazards) ? patch.hazards : (typeof patch.hazards === 'string' ? safeJsonParse(patch.hazards, []) : []);
+
+                    env.temperature_celsius = env.temperature_override !== null
+                        ? env.temperature_override
+                        : calculateDiurnalTemperature(event.fictional_time, env.temperature_baseline ?? 20.0, Boolean(env.is_indoor));
+                    env.lighting_level = env.lighting_override !== null
+                        ? env.lighting_override
+                        : calculateDiurnalLighting(event.fictional_time, Boolean(env.is_indoor), false, env.weather);
+                    env.last_evaluated_fictional_time = event.fictional_time;
+                    state.locationEnvironments[locId] = env;
+                }
+            }
+
+            if (payload.target === 'location_operational_state' || payload.operational_state) {
+                const locId = payload.location_id || payload.location_lws_id || event.location_id;
+                if (locId) {
+                    const ops = state.locationOperationalStates[locId] || {
+                        lws_id: generateDeterministicUuid('loc_ops', simLwsId, locId),
+                        simulation_id: simLwsId,
+                        location_id: locId,
+                        access_status: 'open',
+                        access_override: null,
+                        operating_hours: null,
+                        crowd_density: 'moderate',
+                        ambient_capacity: 50,
+                    };
+                    const patch = payload.operational_state || payload;
+                    if (patch.access_override !== undefined) ops.access_override = patch.access_override;
+                    if (patch.operating_hours !== undefined) ops.operating_hours = typeof patch.operating_hours === 'object' ? patch.operating_hours : safeJsonParse(patch.operating_hours, null);
+                    if (patch.crowd_density !== undefined) ops.crowd_density = patch.crowd_density;
+                    if (patch.ambient_capacity !== undefined) ops.ambient_capacity = patch.ambient_capacity;
+
+                    if (ops.access_override !== null) {
+                        ops.access_status = ops.access_override;
+                    } else if (ops.operating_hours) {
+                        ops.access_status = evaluateOperatingHours(event.fictional_time, ops.operating_hours);
+                    } else if (patch.access_status !== undefined) {
+                        ops.access_status = patch.access_status;
+                    }
+                    state.locationOperationalStates[locId] = ops;
+                }
+            }
+
+            if ((payload.target === 'character_tier' || payload.tier_elevation || payload.tier) && targetCharId) {
+                const nextTier = payload.tier_elevation || payload.tier || 'core';
+                if (nextTier === 'core' && state.characterTiers[targetCharId]) {
+                    state.characterTiers[targetCharId].tier = 'core';
+                    state.characterTiers[targetCharId].cognitive_budget = 'full';
+                }
+            }
             break;
         }
 
@@ -1275,6 +1465,24 @@ export function simulationReducer(state, event) {
                     }
                 }
             }
+
+            // Phase 9: Update diurnal environment temperature and lighting curves
+            for (const env of Object.values(state.locationEnvironments)) {
+                env.temperature_celsius = env.temperature_override !== null
+                    ? env.temperature_override
+                    : calculateDiurnalTemperature(event.fictional_time, env.temperature_baseline ?? 20.0, Boolean(env.is_indoor));
+                env.lighting_level = env.lighting_override !== null
+                    ? env.lighting_override
+                    : calculateDiurnalLighting(event.fictional_time, Boolean(env.is_indoor), false, env.weather);
+                env.last_evaluated_fictional_time = event.fictional_time;
+            }
+
+            // Phase 9: Update operational access states
+            for (const ops of Object.values(state.locationOperationalStates)) {
+                if (ops.access_override === null && ops.operating_hours) {
+                    ops.access_status = evaluateOperatingHours(event.fictional_time, ops.operating_hours);
+                }
+            }
             break;
         }
 
@@ -1404,6 +1612,10 @@ export function replaySimulation(events) {
         socialInformation: {},
         factionMemberships: {},
         developmentRecords: [],
+        characterTiers: {},
+        promotedEntities: {},
+        locationEnvironments: {},
+        locationOperationalStates: {},
     };
 
     return events.reduce(simulationReducer, initialState);
@@ -1887,6 +2099,110 @@ export function verifySimulationParity(simLwsId) {
         }
         if (rb.confidence !== dbB.confidence) {
             throw new Error(`Belief ${dbB.subject_key} confidence drift: replayed=${rb.confidence}, db=${dbB.confidence}`);
+        }
+    }
+
+    // 18. Compare Character Tiers (Phase 9)
+    const dbTiers = db.prepare(`
+        SELECT t.*, sc.lws_id AS char_lws_id
+        FROM lws_simulation_character_tiers t
+        JOIN lws_simulation_characters sc ON t.simulation_character_id = sc.id
+        WHERE t.simulation_id = ?
+    `).all(sim.id);
+
+    for (const dt of dbTiers) {
+        const rt = replayed.characterTiers[dt.char_lws_id];
+        if (!rt) {
+            throw new Error(`Character ${dt.char_lws_id} tier missing in replayed state`);
+        }
+        if (rt.tier !== dt.tier) {
+            throw new Error(`Character ${dt.char_lws_id} tier drift: replayed=${rt.tier}, db=${dt.tier}`);
+        }
+        if (rt.cognitive_budget !== dt.cognitive_budget) {
+            throw new Error(`Character ${dt.char_lws_id} cognitive_budget drift: replayed=${rt.cognitive_budget}, db=${dt.cognitive_budget}`);
+        }
+        if (Boolean(rt.is_promoted) !== Boolean(dt.is_promoted)) {
+            throw new Error(`Character ${dt.char_lws_id} is_promoted drift: replayed=${rt.is_promoted}, db=${dt.is_promoted}`);
+        }
+    }
+
+    // 19. Compare Promoted Entity Records (Phase 9)
+    const dbPromoted = db.prepare(`
+        SELECT p.*, sc.lws_id AS char_lws_id, loc.lws_id AS origin_loc_lws_id
+        FROM lws_promoted_entity_records p
+        JOIN lws_simulation_characters sc ON p.simulation_character_id = sc.id
+        LEFT JOIN lws_locations loc ON p.origin_location_id = loc.id
+        WHERE p.simulation_id = ?
+    `).all(sim.id);
+
+    for (const dp of dbPromoted) {
+        const rp = replayed.promotedEntities[dp.source_transient_id] || replayed.promotedEntities[dp.char_lws_id];
+        if (!rp) {
+            throw new Error(`Promoted entity record ${dp.source_transient_id} missing in replayed state`);
+        }
+        if (rp.source_archetype_key !== dp.source_archetype_key) {
+            throw new Error(`Promoted entity archetype drift: replayed=${rp.source_archetype_key}, db=${dp.source_archetype_key}`);
+        }
+        if (rp.promoted_to_tier !== dp.promoted_to_tier) {
+            throw new Error(`Promoted entity tier drift: replayed=${rp.promoted_to_tier}, db=${dp.promoted_to_tier}`);
+        }
+        if (rp.promotion_reason !== dp.promotion_reason) {
+            throw new Error(`Promoted entity reason drift: replayed=${rp.promotion_reason}, db=${dp.promotion_reason}`);
+        }
+    }
+
+    // 20. Compare Location Environments (Phase 9)
+    const dbEnvs = db.prepare(`
+        SELECT env.*, loc.lws_id AS loc_lws_id
+        FROM lws_location_environments env
+        JOIN lws_locations loc ON env.location_id = loc.id
+        WHERE env.simulation_id = ?
+    `).all(sim.id);
+
+    for (const de of dbEnvs) {
+        const re = replayed.locationEnvironments[de.loc_lws_id];
+        if (re) {
+            if (re.weather !== de.weather) {
+                throw new Error(`Location ${de.loc_lws_id} weather drift: replayed=${re.weather}, db=${de.weather}`);
+            }
+            if (re.temperature_override !== de.temperature_override) {
+                throw new Error(`Location ${de.loc_lws_id} temp override drift: replayed=${re.temperature_override}, db=${de.temperature_override}`);
+            }
+            if (re.lighting_override !== de.lighting_override) {
+                throw new Error(`Location ${de.loc_lws_id} lighting override drift: replayed=${re.lighting_override}, db=${de.lighting_override}`);
+            }
+            if (re.noise_level !== de.noise_level) {
+                throw new Error(`Location ${de.loc_lws_id} noise drift: replayed=${re.noise_level}, db=${de.noise_level}`);
+            }
+            if (re.air_quality !== de.air_quality) {
+                throw new Error(`Location ${de.loc_lws_id} air quality drift: replayed=${re.air_quality}, db=${de.air_quality}`);
+            }
+        }
+    }
+
+    // 21. Compare Location Operational States (Phase 9)
+    const dbOps = db.prepare(`
+        SELECT ops.*, loc.lws_id AS loc_lws_id
+        FROM lws_location_operational_states ops
+        JOIN lws_locations loc ON ops.location_id = loc.id
+        WHERE ops.simulation_id = ?
+    `).all(sim.id);
+
+    for (const dops of dbOps) {
+        const rops = replayed.locationOperationalStates[dops.loc_lws_id];
+        if (rops) {
+            if (rops.access_status !== dops.access_status) {
+                throw new Error(`Location ${dops.loc_lws_id} access_status drift: replayed=${rops.access_status}, db=${dops.access_status}`);
+            }
+            if (rops.access_override !== dops.access_override) {
+                throw new Error(`Location ${dops.loc_lws_id} access_override drift: replayed=${rops.access_override}, db=${dops.access_override}`);
+            }
+            if (rops.crowd_density !== dops.crowd_density) {
+                throw new Error(`Location ${dops.loc_lws_id} crowd_density drift: replayed=${rops.crowd_density}, db=${dops.crowd_density}`);
+            }
+            if (rops.ambient_capacity !== dops.ambient_capacity) {
+                throw new Error(`Location ${dops.loc_lws_id} ambient_capacity drift: replayed=${rops.ambient_capacity}, db=${dops.ambient_capacity}`);
+            }
         }
     }
 

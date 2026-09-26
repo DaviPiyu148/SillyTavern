@@ -6,6 +6,7 @@ import { up as migration005Up } from './005_time_and_schedules.js';
 import { up as migration006Up } from './006_perception_and_knowledge.js';
 import { up as migration007Up } from './007_cognition_and_decisions.js';
 import { up as migration008Up } from './008_social_and_development.js';
+import { up as migration009Up } from './009_environment_and_population.js';
 
 /**
  * Ordered list of all LWS migrations.
@@ -54,6 +55,11 @@ export const MIGRATIONS = Object.freeze([
         version: 8,
         name: '008_social_and_development',
         up: migration008Up,
+    },
+    {
+        version: 9,
+        name: '009_environment_and_population',
+        up: migration009Up,
     },
 ]);
 

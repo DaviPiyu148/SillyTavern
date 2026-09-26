@@ -30,6 +30,107 @@ Known limitations or implications.
 
 ---
 
+## 2026-09-26 — Phase 9: Living World, Population, Environment, and Emergence
+
+Status: IMPLEMENTED / VERIFIED
+
+### Change
+Implemented authoritative living world simulation features: environmental profiles, location operational states, world-authored ambient population archetypes, procedural seed-based ephemeral ambient generation with deterministic transient IDs, causal entity promotion pipeline, population tier classification (Core, Supporting, Ambient) with cognitive budgeting, sensory clarity calculation ($0..100$) and travel modifiers, pure zero-SQL replay engine parity across all 14 authoritative tables, and tri-tier REST transport:
+
+1. Created database migration `009_environment_and_population.js` elevating schema version to `PRAGMA user_version = 9`:
+   - Exactly 5 new tables: `lws_location_environmental_profiles`, `lws_location_operational_states`, `lws_ambient_population_archetypes`, `lws_simulation_character_tiers`, `lws_promoted_entities`.
+   - Exactly 15 Phase 9 triggers (85 cumulative across Phase 4–9 tables, 95 cumulative across all tables):
+     1. `trg_lws_env_profiles_immutability`: Blocks mutating `simulation_id` and `location_id`.
+     2. `trg_lws_env_profiles_same_sim`: Validates location belongs to simulation's world.
+     3. `trg_lws_env_profiles_no_delete`: Prohibits direct physical `DELETE` (requires soft-delete).
+     4. `trg_lws_op_states_immutability`: Blocks mutating `simulation_id` and `location_id`.
+     5. `trg_lws_op_states_same_sim`: Validates location belongs to simulation's world.
+     6. `trg_lws_op_states_no_delete`: Prohibits direct physical `DELETE`.
+     7. `trg_lws_archetypes_world_immutable`: Blocks mutating `world_id`.
+     8. `trg_lws_archetypes_no_delete`: Prohibits direct physical `DELETE`.
+     9. `trg_lws_char_tiers_immutability`: Blocks mutating `simulation_id` and `simulation_character_id`.
+     10. `trg_lws_char_tiers_same_sim`: Validates character belongs to simulation.
+     11. `trg_lws_char_tiers_no_delete`: Prohibits direct physical `DELETE`.
+     12. `trg_lws_promoted_entities_same_sim`: Validates character and causal event belong to simulation.
+     13. `trg_lws_promoted_entities_immutability`: Blocks mutating `simulation_id` and `simulation_character_id`.
+     14. `trg_lws_promoted_entities_no_update`: Prohibits UPDATE on promoted entities ledger.
+     15. `trg_lws_promoted_entities_no_delete`: Prohibits direct physical `DELETE` on promoted entities ledger.
+   - Exactly 10 new indexes (51 cumulative across Phase 4–9 tables):
+     1. `idx_lws_env_profiles_sim_loc`: Unique index on `lws_location_environmental_profiles(simulation_id, location_id) WHERE deleted_at IS NULL`.
+     2. `idx_lws_env_profiles_sim`: Index on `lws_location_environmental_profiles(simulation_id)`.
+     3. `idx_lws_op_states_sim_loc`: Index on `lws_location_operational_states(simulation_id, location_id) WHERE deleted_at IS NULL`.
+     4. `idx_lws_op_states_sim_time`: Index on `lws_location_operational_states(simulation_id, active_since_fictional_time DESC)`.
+     5. `idx_lws_archetypes_world_key`: Unique index on `lws_ambient_population_archetypes(world_id, archetype_key) WHERE deleted_at IS NULL`.
+     6. `idx_lws_archetypes_world`: Index on `lws_ambient_population_archetypes(world_id)`.
+     7. `idx_lws_char_tiers_sim_char`: Unique index on `lws_simulation_character_tiers(simulation_id, simulation_character_id)`.
+     8. `idx_lws_char_tiers_sim_tier`: Index on `lws_simulation_character_tiers(simulation_id, tier)`.
+     9. `idx_lws_promoted_entities_sim_char`: Unique index on `lws_promoted_entities(simulation_id, simulation_character_id)`.
+     10. `idx_lws_promoted_entities_transient`: Index on `lws_promoted_entities(simulation_id, source_transient_id)`.
+   - Cumulative database inventory: Exactly 36 tables, 85 triggers on Phase 4–9 tables (95 triggers system-wide), 51 indexes on Phase 4–9 tables.
+
+2. Implemented 8 Environment & Population Modules:
+   - `src/living-world/environment/common.js`: Environmental taxonomies (`lighting_level`, `crowd_density`, `noise_level`, `air_quality`, `operational_state`, `accessibility`), sensory clarity scoring formula, and travel speed modifier calculations.
+   - `src/living-world/environment/environment.js`: Environmental profiles CRUD, validation, and event-backed mutations (`ENVIRONMENT_CHANGE`).
+   - `src/living-world/environment/operational-states.js`: Operational states management, accessibility validation, and event-backed mutations (`LOCATION_STATUS_CHANGE`).
+   - `src/living-world/population/common.js`: Population tier taxonomies (`core`, `supporting`, `ambient`), transient ID formatting (`amb:{sim}:{loc}:{bucket}:{archetype}:{index}`), and time bucket categorization.
+   - `src/living-world/population/archetypes.js`: World-level authored ambient archetype CRUD and validation.
+   - `src/living-world/population/ambient-generator.js`: Deterministic seed-based pseudo-random generator producing plausible ambient crowd members on-demand for viewport cameras.
+   - `src/living-world/population/promotion.js`: Dynamic entity promotion pipeline with transient ID proof-of-existence verification and immutable promotion ledger logging.
+   - `src/living-world/population/character-tiers.js`: Character tier tracking and cognitive budget arbitration (Core: full; Supporting: lightweight; Ambient: zero-DB).
+
+3. Pure Zero-SQL Replay & Parity Engine (`src/living-world/events/replay.js`):
+   - `simulationReducer` reconstructs all Phase 9 environment profiles, operational states, character tiers, and promoted entity records in pure memory with zero SQL queries.
+   - `verifySimulationParity` proves 100% tested field-level parity across all 14 authoritative tables.
+
+4. Mounted 12 Tri-Tier REST Endpoints in `src/endpoints/living-world.js`:
+   - Observer Tier:
+     - `GET /api/living-world/simulations/:simLwsId/locations/:locLwsId/environment`
+     - `GET /api/living-world/simulations/:simLwsId/locations/:locLwsId/operational-state`
+     - `GET /api/living-world/simulations/:simLwsId/locations/:locLwsId/ambient-population`
+     - `GET /api/living-world/simulations/:simLwsId/promoted-entities`
+   - Subjective Character Tier:
+     - `GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/environment-perception`
+     - `GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/tier`
+   - Director Tier:
+     - `POST /api/living-world/simulations/:simLwsId/locations/:locLwsId/environment`
+     - `POST /api/living-world/simulations/:simLwsId/locations/:locLwsId/operational-state`
+     - `POST /api/living-world/worlds/:worldLwsId/ambient-archetypes`
+     - `GET /api/living-world/worlds/:worldLwsId/ambient-archetypes`
+     - `PATCH /api/living-world/worlds/:worldLwsId/ambient-archetypes/:archetypeLwsId`
+     - `POST /api/living-world/simulations/:simLwsId/promote-entity`
+
+### Reason
+Fulfill LWS Phase 9 specifications to provide dynamic, atmospheric world presence and background crowds without combinatorial cognitive overhead or database bloat.
+
+### Files/modules
+- `src/living-world/migrations/009_environment_and_population.js`
+- `src/living-world/migrations/index.js`
+- `src/living-world/environment/` (`common.js`, `environment.js`, `operational-states.js`)
+- `src/living-world/population/` (`common.js`, `archetypes.js`, `ambient-generator.js`, `promotion.js`, `character-tiers.js`)
+- `src/living-world/events/replay.js`
+- `src/living-world/events/events.js`
+- `src/living-world/endpoints/living-world.js`
+- `src/living-world/index.js`
+- `tests/living-world/` (9 new Phase 9 test suites)
+- `docs/living-world/decisions/ADR-017-living-world-population-environment-and-emergence.md`
+
+### Architecture
+- Maintained One Authoritative Path: all mutations route through `commitEvent()`.
+- Bounded cognitive overhead: Core vs Supporting cognitive budgeting.
+- Zero-DB ephemeral generation: Ambient entities generated deterministically from seed without persistent storage.
+- Causal promotion: Ephemeral entities promoted with verifiable antecedent events and immutable provenance.
+- Pure in-memory replay parity across all 14 simulation runtime tables.
+
+### Tests
+- 9 dedicated Phase 9 test suites passing (37/37 tests).
+- All 63 Living World test suites passing (437/437 tests).
+- All 82 SillyTavern repository test suites passing (848/848 tests, 0 failures).
+
+### Notes
+Phase 9 complete, verified, and accepted. Next phase: Phase 10 (Prompt, Context, and SillyTavern Generation Integration).
+
+---
+
 ## 2026-09-26 — Phase 8: Social Systems, Dynamic Relationships, Rumors, Factions, and Character Development
 
 Status: IMPLEMENTED / VERIFIED

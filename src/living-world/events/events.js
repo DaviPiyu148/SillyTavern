@@ -10,6 +10,7 @@ import { initCharacterNeeds } from '../cognition/needs.js';
 import { initCharacterValues } from '../cognition/values.js';
 import { initCharacterEmotion } from '../cognition/emotions.js';
 import { initCharacterFactionMemberships } from '../social/factions.js';
+import { setCharacterTier } from '../population/character-tiers.js';
 
 /**
  * Computes a deterministic SHA-256 fingerprint of an event proposal for idempotency validation.
@@ -194,6 +195,11 @@ export function internalCommitEvent(db, sim, proposal, callerContext = {}) {
         // Initialize Phase 8 faction memberships from authored snapshot
         initCharacterFactionMemberships(db, sim.id, newSimCharRow.id, sim.lws_id, simCharLwsId, authoredChar.id, evaluated.fictional_time, eventCreatedAt);
 
+        // Phase 9: Initialize simulation character tier
+        const targetTier = p.tier || p.promotion?.promoted_to_tier || 'core';
+        const isPromoted = Boolean(p.promotion || p.runtime_state?.is_promoted || p.is_promoted);
+        setCharacterTier(db, sim.id, newSimCharRow.id, targetTier, isPromoted ? 1 : 0);
+
         // Ensure payload is complete and self-contained for zero-SQL replay
         finalPayload = {
             ...p,
@@ -203,6 +209,8 @@ export function internalCommitEvent(db, sim, proposal, callerContext = {}) {
             activity: initialActivity,
             physical_condition: initialPhysicalCondition,
             runtime_state: initialRuntimeState,
+            tier: targetTier,
+            is_promoted: isPromoted,
         };
     }
 
@@ -230,6 +238,33 @@ export function internalCommitEvent(db, sim, proposal, callerContext = {}) {
         evaluated.idempotency_key,
         eventCreatedAt,
     );
+
+    // Phase 9: Insert promotion record if promoted CHARACTER_JOIN
+    if (evaluated.event_type === EVENT_TYPES.CHARACTER_JOIN && evaluated.payload?.promotion) {
+        const promo = evaluated.payload.promotion;
+        const promoLwsId = generateUuid();
+        const causalId = evaluated.causal_event_internal_id || insertResult.lastInsertRowid;
+        db.prepare(`
+            INSERT INTO lws_promoted_entity_records (
+                lws_id, simulation_id, simulation_character_id,
+                source_archetype_key, source_transient_id, origin_location_id,
+                promotion_reason, causal_event_id, promoted_to_tier,
+                fictional_time, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            promoLwsId,
+            sim.id,
+            finalActorInternalId,
+            promo.source_archetype_key || 'unknown',
+            promo.source_transient_id,
+            evaluated.location_internal_id,
+            promo.promotion_reason || 'direct_interaction',
+            causalId,
+            evaluated.payload.tier || 'supporting',
+            evaluated.fictional_time,
+            eventCreatedAt,
+        );
+    }
 
     evaluated.event_internal_id = insertResult.lastInsertRowid;
     evaluated.event_lws_id = eventLwsId;

@@ -76,7 +76,7 @@ export function validateFictionalTimestamp(value, fieldName = 'initial_fictional
         );
     }
 
-    return trimmed;
+    return `${yearStr}-${monthStr}-${dayStr}T${hourStr}:${minStr}:${secStr}Z`;
 }
 
 export const VALID_SIMULATION_STATUSES = Object.freeze(['active', 'paused', 'archived']);

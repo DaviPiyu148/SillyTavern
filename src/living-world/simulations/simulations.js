@@ -51,7 +51,7 @@ export function createSimulation(worldLwsId, input = {}) {
 
     const name = validateName(input.name, 'name');
     const initialFictionalTime = validateFictionalTimestamp(
-        input.initial_fictional_time ?? input.current_fictional_time,
+        input.initial_fictional_time ?? input.current_fictional_time ?? input.fictional_start_time,
         'initial_fictional_time',
     );
     const settings = validateExtensions(input.settings, 'settings');

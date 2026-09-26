@@ -14,9 +14,9 @@ describe('LWS Phase 8 Social & Development Database Foundation', () => {
         }
     });
 
-    test('applies migration 008 and sets PRAGMA user_version to 8', () => {
+    test('applies migration 008 and sets PRAGMA user_version to at least 8', () => {
         const userVersion = memoryDb.pragma('user_version', { simple: true });
-        expect(userVersion).toBe(8);
+        expect(userVersion).toBeGreaterThanOrEqual(8);
     });
 
     test('creates all 5 Phase 8 social and character development tables', () => {

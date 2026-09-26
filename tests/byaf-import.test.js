@@ -8,7 +8,11 @@ import { getArrayBufferSlice } from '../src/util.js';
 
 // The parser reads the default avatar from a repo-root-relative path
 const originalCwd = process.cwd();
-beforeAll(() => process.chdir(path.resolve(originalCwd, '..')));
+beforeAll(() => {
+    if (path.basename(originalCwd) === 'tests') {
+        process.chdir(path.resolve(originalCwd, '..'));
+    }
+});
 afterAll(() => process.chdir(originalCwd));
 
 /**

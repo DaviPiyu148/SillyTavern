@@ -47,11 +47,11 @@ describe('LWS Subsystem Lifecycle and Initialization', () => {
 
         const status = getLwsStatus();
         expect(status.initialized).toBe(true);
-        expect(status.schemaVersion).toBe(8);
+        expect(status.schemaVersion).toBe(9);
 
         expect(isLwsAvailable()).toBe(true);
         expect(getDb()).toBeDefined();
-        expect(getDbVersion()).toBe(8);
+        expect(getDbVersion()).toBe(9);
     });
 
     test('idempotent initialization does not throw and preserves state', async () => {
@@ -66,7 +66,7 @@ describe('LWS Subsystem Lifecycle and Initialization', () => {
 
         const status = getLwsStatus();
         expect(status.initialized).toBe(true);
-        expect(status.schemaVersion).toBe(8);
+        expect(status.schemaVersion).toBe(9);
     });
 
 

@@ -14,6 +14,8 @@ SillyTavern
     ├── perception/memory
     ├── cognition (8 modules: needs, goals, intentions, values, emotions, deliberation, arbitration, common)
     ├── social (6 modules: common, relationships, evidence, rumors, factions, development)
+    ├── environment (3 modules: common, environment, operational-states)
+    ├── population (5 modules: common, archetypes, ambient-generator, promotion, character-tiers)
     ├── observation/director
     ├── persistence/replay
     ├── import/normalization
