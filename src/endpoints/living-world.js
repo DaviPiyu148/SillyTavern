@@ -131,10 +131,30 @@ import {
     parseModelResponse,
     generateSimulationTurn,
     getDb,
+    normalizeCharacterCard,
+    normalizeWorldInfo,
+    parseFreeformOutline,
+    parseManifestInput,
+    validateWorldManifest,
+    exportWorldManifest,
+    previewImport,
+    commitImport,
+    CONFLICT_POLICIES,
 } from '../living-world/index.js';
 import { isValidUuid, generateUuid } from '../living-world/authored/common.js';
+import multer from 'multer';
 
 const router = express.Router();
+
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB limit per Phase 11 spec
+});
+
+const yamlBodyParser = express.text({
+    type: ['application/x-yaml', 'text/yaml', 'text/plain'],
+    limit: '10mb',
+});
 
 /**
  * Standard error response mapper for LWS endpoints.
@@ -145,13 +165,13 @@ const router = express.Router();
  */
 function handleRouteError(err, res, routeName) {
     if (err instanceof LwsValidationError) {
-        return res.status(400).json({ error: err.message, fields: err.fields ?? [] });
+        return res.status(400).json({ error: err.message, code: err.code || 'LWS_VALIDATION_ERROR', fields: err.fields ?? [] });
     }
     if (err instanceof LwsNotFoundError) {
-        return res.status(404).json({ error: err.message });
+        return res.status(404).json({ error: err.message, code: 'LWS_NOT_FOUND' });
     }
     if (err instanceof LwsConflictError) {
-        return res.status(409).json({ error: err.message });
+        return res.status(409).json({ error: err.message, code: err.code || 'LWS_CONFLICT', conflicts: err.conflicts || [] });
     }
     if (err instanceof LwsInvalidStateTransitionError) {
         return res.status(422).json({ error: err.message, code: 'INVALID_STATE_TRANSITION', fields: err.fields ?? [] });
@@ -2328,5 +2348,329 @@ router.post('/simulations/:simLwsId/generate', async (req, res) => {
     }
 });
 
+// ============================================================================
+// Phase 11: Import, Normalization, and Authoring Workflow Endpoints (9 Routes)
+// ============================================================================
+
+// 1. POST /import/character/preview
+router.post('/import/character/preview', upload.single('avatar'), (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    try {
+        let input = null;
+        let filename = '';
+        if (req.file) {
+            input = req.file.buffer;
+            filename = req.file.originalname || '';
+        } else if (req.body?.card) {
+            input = req.body.card;
+            filename = req.body.filename || '';
+        } else if (req.body) {
+            input = req.body;
+        }
+
+        const targetWorldLwsId = req.body?.target_world_lws_id || null;
+        const norm = normalizeCharacterCard(input, { filename });
+        const candidateEntities = {
+            characters: [norm.character],
+            lore_entries: norm.embedded_lorebook?.entries || [],
+        };
+
+        const preview = previewImport({
+            candidate_entities: candidateEntities,
+            target_world_lws_id: targetWorldLwsId,
+        });
+
+        return res.status(200).json({
+            success: true,
+            preview_token: preview.preview_token,
+            source_type: `sillytavern_card_${norm.spec_type}`,
+            normalized: norm.character,
+            candidate_entities: candidateEntities,
+            provenance: norm.provenance,
+            conflicts: preview.conflicts,
+            warnings: norm.warnings,
+        });
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /import/character/preview');
+    }
+});
+
+// 2. POST /worlds/:worldLwsId/import/character
+router.post('/worlds/:worldLwsId/import/character', upload.single('avatar'), (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ worldLwsId: req.params.worldLwsId }, res)) return;
+    try {
+        const body = req.body || {};
+        const previewToken = body.preview_token;
+        let candidateEntities = body.candidate_entities;
+
+        if (!candidateEntities) {
+            let cardInput = null;
+            let filename = '';
+            if (req.file) {
+                cardInput = req.file.buffer;
+                filename = req.file.originalname || '';
+            } else if (body.card) {
+                cardInput = body.card;
+                filename = body.filename || '';
+            }
+            if (cardInput) {
+                const norm = normalizeCharacterCard(cardInput, { filename });
+                candidateEntities = {
+                    characters: [norm.character],
+                    lore_entries: norm.embedded_lorebook?.entries || [],
+                };
+            }
+        }
+
+        const conflictPolicy = body.conflict_policy || CONFLICT_POLICIES.REJECT;
+
+        const result = commitImport({
+            preview_token: previewToken,
+            candidate_entities: candidateEntities,
+            target_world_lws_id: req.params.worldLwsId,
+            conflict_policy: conflictPolicy,
+        });
+
+        const createdChar = result.entities.characters[0] || null;
+
+        return res.status(201).json({
+            success: true,
+            character: createdChar,
+            provenance: createdChar?.extensions?.provenance || result.world.extensions?.provenance || null,
+        });
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /worlds/:worldLwsId/import/character');
+    }
+});
+
+// 3. POST /import/worldinfo/preview
+router.post('/import/worldinfo/preview', upload.single('file'), (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    try {
+        let input = null;
+        let filename = '';
+        if (req.file) {
+            input = req.file.buffer.toString('utf8');
+            filename = req.file.originalname || '';
+        } else if (req.body?.worldinfo) {
+            input = req.body.worldinfo;
+            filename = req.body.filename || '';
+        } else if (req.body) {
+            input = req.body;
+        }
+
+        const targetWorldLwsId = req.body?.target_world_lws_id || null;
+        const norm = normalizeWorldInfo(input, { filename });
+
+        const preview = previewImport({
+            candidate_entities: norm.candidate_entities,
+            target_world_lws_id: targetWorldLwsId,
+        });
+
+        return res.status(200).json({
+            success: true,
+            preview_token: preview.preview_token,
+            summary: norm.summary,
+            candidate_entities: norm.candidate_entities,
+            conflicts: preview.conflicts,
+            warnings: norm.warnings,
+            ambiguity_flags: norm.ambiguity_flags,
+        });
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /import/worldinfo/preview');
+    }
+});
+
+// 4. POST /worlds/:worldLwsId/import/worldinfo
+router.post('/worlds/:worldLwsId/import/worldinfo', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ worldLwsId: req.params.worldLwsId }, res)) return;
+    try {
+        const body = req.body || {};
+        const previewToken = body.preview_token;
+        const candidateEntities = body.candidate_entities;
+        const conflictPolicy = body.conflict_policy || CONFLICT_POLICIES.REJECT;
+
+        const result = commitImport({
+            preview_token: previewToken,
+            candidate_entities: candidateEntities,
+            target_world_lws_id: req.params.worldLwsId,
+            conflict_policy: conflictPolicy,
+        });
+
+        return res.status(201).json({
+            success: true,
+            imported_counts: result.imported_counts,
+            entities: result.entities,
+        });
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /worlds/:worldLwsId/import/worldinfo');
+    }
+});
+
+// 5. POST /import/freeform/preview
+router.post('/import/freeform/preview', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    try {
+        const text = req.body?.text || '';
+        const targetWorldLwsId = req.body?.target_world_lws_id || null;
+
+        const norm = parseFreeformOutline(text, { filename: req.body?.filename });
+        const preview = previewImport({
+            candidate_entities: norm.candidate_entities,
+            target_world_lws_id: targetWorldLwsId,
+        });
+
+        return res.status(200).json({
+            success: true,
+            preview_token: preview.preview_token,
+            candidate_entities: norm.candidate_entities,
+            ambiguity_flags: norm.ambiguity_flags,
+            warnings: norm.warnings,
+        });
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /import/freeform/preview');
+    }
+});
+
+// 6. POST /worlds/:worldLwsId/import/freeform
+router.post('/worlds/:worldLwsId/import/freeform', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ worldLwsId: req.params.worldLwsId }, res)) return;
+    try {
+        const body = req.body || {};
+        const previewToken = body.preview_token;
+        const candidateEntities = body.candidate_entities;
+        const conflictPolicy = body.conflict_policy || CONFLICT_POLICIES.REJECT;
+
+        const result = commitImport({
+            preview_token: previewToken,
+            candidate_entities: candidateEntities,
+            target_world_lws_id: req.params.worldLwsId,
+            conflict_policy: conflictPolicy,
+        });
+
+        return res.status(201).json({
+            success: true,
+            imported_counts: result.imported_counts,
+            entities: result.entities,
+        });
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /worlds/:worldLwsId/import/freeform');
+    }
+});
+
+// 7. POST /import/manifest/preview
+router.post('/import/manifest/preview', yamlBodyParser, (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    try {
+        const rawInput = typeof req.body === 'string' ? req.body : (req.body?.manifest || req.body);
+        const manifest = parseManifestInput(rawInput);
+        const validation = validateWorldManifest(manifest);
+
+        if (!validation.valid) {
+            const err = new LwsValidationError(`Manifest validation failed: ${validation.errors.join('; ')}`, ['manifest']);
+            err.code = 'LWS_VALIDATION_ERROR';
+            err.errors = validation.errors;
+            throw err;
+        }
+
+        const candidateEntities = {
+            world: manifest.world,
+            characters: manifest.characters || [],
+            locations: manifest.locations || [],
+            factions: manifest.factions || [],
+            character_factions: manifest.character_factions || [],
+            world_rules: manifest.world_rules || [],
+            scenarios: manifest.scenarios || [],
+            scenario_characters: manifest.scenario_characters || [],
+            ambient_archetypes: manifest.ambient_archetypes || [],
+            prompt_config: manifest.prompt_config || null,
+        };
+
+        const preview = previewImport({ candidate_entities: candidateEntities });
+
+        return res.status(200).json({
+            success: true,
+            preview_token: preview.preview_token,
+            valid: true,
+            summary: validation.summary,
+            conflicts: preview.conflicts,
+            warnings: validation.warnings,
+        });
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /import/manifest/preview');
+    }
+});
+
+// 8. POST /import/manifest/commit
+router.post('/import/manifest/commit', yamlBodyParser, (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    try {
+        let body = req.body;
+        if (typeof body === 'string') {
+            body = parseManifestInput(body);
+        }
+
+        const previewToken = body.preview_token;
+        const rawManifest = body.manifest || body;
+        const manifest = parseManifestInput(rawManifest);
+        const validation = validateWorldManifest(manifest);
+
+        if (!validation.valid) {
+            const err = new LwsValidationError(`Manifest validation failed: ${validation.errors.join('; ')}`, ['manifest']);
+            err.code = 'LWS_VALIDATION_ERROR';
+            err.errors = validation.errors;
+            throw err;
+        }
+
+        const candidateEntities = {
+            world: manifest.world,
+            characters: manifest.characters || [],
+            locations: manifest.locations || [],
+            factions: manifest.factions || [],
+            character_factions: manifest.character_factions || [],
+            world_rules: manifest.world_rules || [],
+            scenarios: manifest.scenarios || [],
+            scenario_characters: manifest.scenario_characters || [],
+            ambient_archetypes: manifest.ambient_archetypes || [],
+            prompt_config: manifest.prompt_config || null,
+        };
+
+        const conflictPolicy = body.conflict_policy || CONFLICT_POLICIES.REJECT;
+        const preserveIds = body.preserve_ids !== false;
+
+        const result = commitImport({
+            preview_token: previewToken,
+            candidate_entities: candidateEntities,
+            conflict_policy: conflictPolicy,
+            preserve_ids: preserveIds,
+        });
+
+        return res.status(201).json({
+            success: true,
+            world: result.world,
+            imported_counts: result.imported_counts,
+        });
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /import/manifest/commit');
+    }
+});
+
+// 9. GET /worlds/:worldLwsId/export/manifest
+router.get('/worlds/:worldLwsId/export/manifest', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ worldLwsId: req.params.worldLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const manifest = exportWorldManifest(db, req.params.worldLwsId);
+        return res.status(200).json(manifest);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /worlds/:worldLwsId/export/manifest');
+    }
+});
+
 export { router };
+
 

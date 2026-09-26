@@ -38,6 +38,7 @@
 - `ADR-016`: Social Systems, Dynamic Relationships, Rumors, Factions, and Character Development (Phase 8).
 - `ADR-017`: Living World, Population Tiers, Environmental Dynamics, Operational States, and Emergence (Phase 9).
 - `ADR-018`: Prompt, Context, Perspective Isolation, and SillyTavern Generation Integration (Phase 10).
+- `ADR-019`: Import, Normalization, Provenance, and Authored Creation Workflow (Phase 11).
 
 ## Task routing
 

@@ -28,6 +28,90 @@ Tests/checks and result.
 Known limitations or implications.
 ```
 
+## 2026-09-26 — Phase 11: Import, Normalization, Provenance, and Authored Creation Workflow
+
+Status: IMPLEMENTED / VERIFIED / ACCEPTED
+
+### Change
+Implemented complete import, normalization, provenance, conflict resolution, preview/commit token binding, and canonical world manifest exchange pipeline for the Living World Simulator:
+
+1. **Import & Normalization Subsystem (`src/living-world/import/`):**
+   - `common.js`: Unicode NFC normalization (`normalizeUnicode`), prototype pollution sanitizer (`sanitizePrototype`), RFC 8785 canonical JSON serializer (`canonicalizeJson`), 10-table canonical preview state hash (`computePreviewStateHash`), HMAC-SHA256 preview token generator and verifier (`generatePreviewToken`, `verifyPreviewToken`), and provenance record builder (`createProvenance`).
+   - `card-importer.js`: Multi-format SillyTavern Character Card normalizer (`normalizeCharacterCard`) supporting V1, V2, V3 JSON and binary PNG metadata chunks (`ccv3` with fallback to `chara`), comprehensive 22-field mapping, vendor unmapped field preservation, and derived `first_mes` fallback.
+   - `worldinfo-importer.js`: Lorebook normalizer (`normalizeWorldInfo`) evaluating entries across 5 structural dimensions ($S_{\text{rule}}, S_{\text{loc}}, S_{\text{fac}}, S_{\text{arch}}, S_{\text{char}}$) with strict ambiguity detection ($\Delta_{\text{margin}} < 0.25$) and conservative flavor fallback into `candidate_entities.lore_entries` ("Lore is not physical reality").
+   - `manifest-importer.js`: Canonical LWS World Manifest (`lws_world_manifest_v1`) parser, validator (`validateWorldManifest` enforcing cardinality bounds and location acyclicity $\le 10$ levels deep), exporter (`exportWorldManifest`), and round-trip parity comparator (`compareManifestParity`).
+   - `freeform-importer.js`: Markdown and unstructured outline parser (`parseFreeformOutline`) supporting section headings and direct typed headings (`## Location: ...`, `## Faction: ...`, `## Character: ...`, `## Rule: ...`).
+   - `ai-normalizer.js`: AI-assisted normalization pipeline with negative no-invention prompt contract, timeout cleanup, and heuristic fallback.
+   - `conflicts.js`: Active collision detector (`detectCollisions`) across all 10 authored tables, conflict object generator (`createConflictObject`), incremental name disambiguator (`generateDisambiguatedName`), and explicit field merge functions (`mergeCharacterEntities`, `mergeWorldEntities`, `mergeLocationEntities`, `mergeFactionEntities`).
+   - `authoring.js`: Multi-entity preview generator (`previewImport`) and atomic SQLite transaction commit manager (`commitImport`) enforcing in-transaction TOCTOU verification against HMAC preview tokens under SQLite `EXCLUSIVE` locking.
+
+2. **REST Transport (`src/endpoints/living-world.js`):**
+   - Mounted exactly 9 REST endpoints with multer 10MB memoryStorage and yamlBodyParser middleware:
+     - `POST /api/living-world/import/character/preview`
+     - `POST /api/living-world/worlds/:worldLwsId/import/character`
+     - `POST /api/living-world/import/worldinfo/preview`
+     - `POST /api/living-world/worlds/:worldLwsId/import/worldinfo`
+     - `POST /api/living-world/import/freeform/preview`
+     - `POST /api/living-world/worlds/:worldLwsId/import/freeform`
+     - `POST /api/living-world/import/manifest/preview`
+     - `POST /api/living-world/import/manifest/commit`
+     - `GET /api/living-world/worlds/:worldLwsId/export/manifest`
+
+3. **Dedicated Test Suites (`tests/living-world/`):**
+   - 8 dedicated Phase 11 test suites passing (78/78 tests):
+     - `lws-provenance.test.js` (16 passed)
+     - `lws-card-importer.test.js` (10 passed)
+     - `lws-worldinfo-importer.test.js` (9 passed)
+     - `lws-manifest-importer.test.js` (6 passed)
+     - `lws-ai-normalizer.test.js` (7 passed)
+     - `lws-conflicts.test.js` (5 passed)
+     - `lws-authoring-bundle.test.js` (7 passed)
+     - `lws-import-api.test.js` (14 passed)
+
+### Reason
+Enable seamless ingestion of existing SillyTavern character cards, lorebooks, manifests, and freeform text into canonical LWS authored definitions with cryptographic preview safety, full provenance tracking, and zero active simulation perturbation.
+
+### Files/modules
+- Created:
+  - `src/living-world/import/common.js`
+  - `src/living-world/import/card-importer.js`
+  - `src/living-world/import/worldinfo-importer.js`
+  - `src/living-world/import/manifest-importer.js`
+  - `src/living-world/import/freeform-importer.js`
+  - `src/living-world/import/ai-normalizer.js`
+  - `src/living-world/import/conflicts.js`
+  - `src/living-world/import/authoring.js`
+  - `tests/living-world/lws-provenance.test.js`
+  - `tests/living-world/lws-card-importer.test.js`
+  - `tests/living-world/lws-worldinfo-importer.test.js`
+  - `tests/living-world/lws-manifest-importer.test.js`
+  - `tests/living-world/lws-ai-normalizer.test.js`
+  - `tests/living-world/lws-conflicts.test.js`
+  - `tests/living-world/lws-authoring-bundle.test.js`
+  - `tests/living-world/lws-import-api.test.js`
+  - `docs/living-world/decisions/ADR-019-import-normalization-and-authoring-workflow.md`
+- Modified:
+  - `src/living-world/index.js`
+  - `src/endpoints/living-world.js`
+  - `docs/living-world/IMPORT_AND_NORMALIZATION.md`
+  - `docs/living-world/DOCUMENTATION_INDEX.md`
+  - `docs/living-world/PROJECT_STATE.md`
+  - `docs/living-world/AI_CHANGELOG.md`
+
+### Architecture
+- Strict authored-vs-runtime domain separation: import operations write strictly to authored tables.
+- Running simulations are guarded by frozen immutable `authored_snapshot` records in `lws_simulation_characters`.
+- Cryptographic TOCTOU protection prevents race conditions and stale previews.
+- Zero database migrations (`PRAGMA user_version = 9`).
+
+### Tests
+- Phase 11 dedicated: 78/78 tests passing across 8 suites.
+- Living World subsystem: 537/537 tests passing across 78 suites (100% pass rate).
+- Linter verification clean (0 errors).
+- Zero browser automation / DevTools used.
+
+---
+
 ## 2026-09-26 — Phase 10: Prompt, Context, and SillyTavern Generation Integration
 
 Status: IMPLEMENTED / VERIFIED / ACCEPTED

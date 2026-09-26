@@ -128,5 +128,13 @@ export * from './prompt/context-builder.js';
 export * from './prompt/token-budget.js';
 export * from './prompt/output-parser.js';
 export * from './prompt/generation.js';
+export * from './import/common.js';
+export * from './import/card-importer.js';
+export * from './import/worldinfo-importer.js';
+export * from './import/manifest-importer.js';
+export * from './import/freeform-importer.js';
+export * from './import/ai-normalizer.js';
+export * from './import/conflicts.js';
+export * from './import/authoring.js';
 
 
