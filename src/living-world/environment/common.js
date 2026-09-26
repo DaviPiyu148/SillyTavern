@@ -243,3 +243,42 @@ export function evaluateOperatingHours(fictionalTime, operatingHours) {
     return 'open';
 }
 
+/**
+ * Calculates environmental sensory clarity score (0 to 100) based on lighting,
+ * weather, air quality, noise, and crowd density.
+ *
+ * @param {object} [environment={}]
+ * @param {object} [operationalState={}]
+ * @returns {number} Integer between 0 and 100
+ */
+export function calculateSensoryClarity(environment = {}, operationalState = {}) {
+    let clarity = 100;
+
+    const lighting = environment.lighting_override || environment.lighting_level || 'normal';
+    if (lighting === 'pitch_black') clarity -= 40;
+    else if (lighting === 'dim') clarity -= 15;
+    else if (lighting === 'blinding') clarity -= 20;
+
+    const weather = environment.weather || 'clear';
+    if (weather === 'fog') clarity -= 30;
+    else if (weather === 'heavy_rain') clarity -= 20;
+    else if (weather === 'storm') clarity -= 25;
+    else if (weather === 'blizzard') clarity -= 35;
+
+    const airQuality = environment.air_quality || 'clean';
+    if (airQuality === 'smoke') clarity -= 30;
+    else if (airQuality === 'toxic') clarity -= 20;
+    else if (airQuality === 'hazy') clarity -= 10;
+
+    const noise = Number(environment.noise_level) || 0;
+    if (noise > 50) {
+        clarity -= Math.round((noise - 50) * 0.4);
+    }
+
+    const crowd = operationalState.crowd_density || 'empty';
+    if (crowd === 'packed') clarity -= 20;
+    else if (crowd === 'crowded') clarity -= 10;
+
+    return Math.max(0, Math.min(100, Math.round(clarity)));
+}
+

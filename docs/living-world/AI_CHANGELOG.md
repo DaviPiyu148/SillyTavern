@@ -28,6 +28,72 @@ Tests/checks and result.
 Known limitations or implications.
 ```
 
+## 2026-09-26 — Phase 10: Prompt, Context, and SillyTavern Generation Integration
+
+Status: IMPLEMENTED / VERIFIED
+
+### Change
+Implemented native prompt assembly, perspective isolation, token budgeting, model output parsing, and savepoint generation integration for the Living World Simulator:
+
+1. **Prompt & Context Subsystem (`src/living-world/prompt/`):**
+   - `common.js`: Canonical taxonomies for 4 generation modes (`character_dialogue`, `character_decision`, `world_narration`, `director_query`), 12 prompt layers, 4 output contracts (`dual_block`, `structured_proposal`, `narrative_prose`, `director_report`), priority weights, default system contract, and output contract instruction templates.
+   - `context-builder.js`: 12-layer dynamic prompt context builder (`buildPromptContext`) enforcing strict perspective isolation (zero-omniscience: unperceived events, private beliefs of other characters, distant entities, and third-party relationship matrices strictly omitted).
+   - `token-budget.js`: Deterministic token estimation (`estimateTokens`) and priority-based graceful layer trimming (`allocateTokenBudget`), preserving fixed layers (system contract, output contract, user prompt) while gracefully truncating/pruning elastic layers (recent events, memories, relationships) when over budget.
+   - `output-parser.js`: Robust parser (`parseModelResponse`) extracting `<lws_proposal>...</lws_proposal>` tags, markdown fenced JSON blocks, and raw JSON into structured event proposals while cleanly stripping blocks to produce pure narrative prose.
+   - `generation.js`: Turn orchestrator (`generateSimulationTurn`) executing context assembly $\to$ token budgeting $\to$ model transport (ST provider/mock) $\to$ proposal parsing $\to$ 2-transaction savepoint execution (`executeNarrativeTurn`).
+
+2. **Domain & Authority Enhancements:**
+   - Updated `src/living-world/environment/common.js` with `calculateSensoryClarity(environment, operationalState)` calculating environmental sensory clarity score ($0..100$) based on lighting, weather, air quality, noise, and crowd density.
+   - Enhanced `src/living-world/events/authority.js` and `src/living-world/prompt/context-builder.js` to seamlessly resolve character references via either authored UUID (`c.lws_id`) or runtime simulation UUID (`sc.lws_id`).
+
+3. **REST Transport (`src/endpoints/living-world.js`):**
+   - Mounted `POST /api/living-world/simulations/:simLwsId/prompt-context/build` for inspecting layered prompt contexts and token budget allocations.
+   - Mounted `POST /api/living-world/simulations/:simLwsId/generate` for full simulation turn generation and savepoint execution.
+
+4. **Dedicated Test Suites (`tests/living-world/`):**
+   - `lws-prompt-context-builder.test.js`: 12-layer context assembly, mode adaptation, and user system prompt integration (ADR-008).
+   - `lws-prompt-knowledge-isolation.test.js`: Strict anti-omniscience, co-location boundaries, and private belief protection.
+   - `lws-token-budgeting.test.js`: Deterministic token estimation, budget allocation, and priority layer pruning.
+   - `lws-output-parser.test.js`: XML proposal tags, markdown fences, JSON normalization, and error resilience.
+   - `lws-generation-pipeline.test.js`: End-to-end turn generation, valid proposal execution, pure narrative turns, and savepoint rollback on rejection.
+   - `lws-prompt-api.test.js`: HTTP endpoints for prompt context building and simulation generation.
+
+### Reason
+Provide a robust generative bridge between SillyTavern and the Living World simulation without granting the LLM direct state authority or leaking hidden world secrets.
+
+### Files/modules
+- `src/living-world/prompt/common.js`
+- `src/living-world/prompt/context-builder.js`
+- `src/living-world/prompt/token-budget.js`
+- `src/living-world/prompt/output-parser.js`
+- `src/living-world/prompt/generation.js`
+- `src/living-world/environment/common.js`
+- `src/living-world/events/authority.js`
+- `src/living-world/index.js`
+- `src/endpoints/living-world.js`
+- `tests/living-world/lws-prompt-context-builder.test.js`
+- `tests/living-world/lws-prompt-knowledge-isolation.test.js`
+- `tests/living-world/lws-token-budgeting.test.js`
+- `tests/living-world/lws-output-parser.test.js`
+- `tests/living-world/lws-generation-pipeline.test.js`
+- `tests/living-world/lws-prompt-api.test.js`
+- `docs/living-world/decisions/ADR-018-prompt-context-and-generation-integration.md`
+- `docs/living-world/PROJECT_STATE.md`
+- `docs/living-world/AI_CHANGELOG.md`
+- `docs/living-world/DOCUMENTATION_INDEX.md`
+- `docs/living-world/ARCHITECTURE.md`
+- `docs/living-world/PROMPT_AND_CONTEXT.md`
+
+### Architecture
+- Conforms to $\mathbf{LLM/User\ proposes \to Simulation\ Engine\ decides \to Database\ records\ reality \to Narrative\ presents\ reality}$.
+- Preserves the closed 29-event taxonomy and 4-stage authority evaluation pipeline.
+- Enforces two-transaction savepoint isolation for turn execution.
+
+### Tests
+- Phase 10 dedicated: 22/22 tests passing across 6 suites.
+- Living World subsystem: 459/459 tests passing across 69 suites.
+- Full repository: 870/870 tests passing across 88 suites.
+
 ---
 
 ## 2026-09-26 — Phase 9: Living World, Population, Environment, and Emergence

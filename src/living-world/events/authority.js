@@ -51,11 +51,12 @@ export function evaluateAuthority(db, sim, proposal, callerContext = {}) {
     let actorRow = null;
     if (proposal.actor_character_id && proposal.event_type !== EVENT_TYPES.CHARACTER_JOIN) {
         actorRow = db.prepare(`
-            SELECT id, lws_id, simulation_id, character_id, current_location_id,
-                   activity, physical_condition, runtime_state, authored_snapshot, deleted_at
-            FROM lws_simulation_characters
-            WHERE lws_id = ? AND simulation_id = ?
-        `).get(proposal.actor_character_id, sim.id);
+            SELECT sc.id, sc.lws_id, sc.simulation_id, sc.character_id, sc.current_location_id,
+                   sc.activity, sc.physical_condition, sc.runtime_state, sc.authored_snapshot, sc.deleted_at
+            FROM lws_simulation_characters sc
+            JOIN lws_characters c ON sc.character_id = c.id
+            WHERE (sc.lws_id = ? OR c.lws_id = ?) AND sc.simulation_id = ?
+        `).get(proposal.actor_character_id, proposal.actor_character_id, sim.id);
 
         if (!actorRow) {
             throw new LwsNotFoundError(`Actor character ${proposal.actor_character_id} not found in this simulation`);
@@ -70,11 +71,12 @@ export function evaluateAuthority(db, sim, proposal, callerContext = {}) {
     let targetRow = null;
     if (proposal.target_character_id) {
         targetRow = db.prepare(`
-            SELECT id, lws_id, simulation_id, character_id, current_location_id,
-                   activity, physical_condition, runtime_state, authored_snapshot, deleted_at
-            FROM lws_simulation_characters
-            WHERE lws_id = ? AND simulation_id = ?
-        `).get(proposal.target_character_id, sim.id);
+            SELECT sc.id, sc.lws_id, sc.simulation_id, sc.character_id, sc.current_location_id,
+                   sc.activity, sc.physical_condition, sc.runtime_state, sc.authored_snapshot, sc.deleted_at
+            FROM lws_simulation_characters sc
+            JOIN lws_characters c ON sc.character_id = c.id
+            WHERE (sc.lws_id = ? OR c.lws_id = ?) AND sc.simulation_id = ?
+        `).get(proposal.target_character_id, proposal.target_character_id, sim.id);
 
         if (!targetRow) {
             throw new LwsNotFoundError(`Target character ${proposal.target_character_id} not found in this simulation`);

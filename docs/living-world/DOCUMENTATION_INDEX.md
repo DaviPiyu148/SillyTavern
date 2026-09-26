@@ -36,6 +36,7 @@
 - `ADR-015`: Character Cognition, Goals, Values, Emotions, and Decision Making (Phase 7).
 - `ADR-016`: Social Systems, Dynamic Relationships, Rumors, Factions, and Character Development (Phase 8).
 - `ADR-017`: Living World, Population Tiers, Environmental Dynamics, Operational States, and Emergence (Phase 9).
+- `ADR-018`: Prompt, Context, Perspective Isolation, and SillyTavern Generation Integration (Phase 10).
 
 ## Task routing
 
@@ -55,7 +56,7 @@ Read `SIMULATION_MODEL.md`, `decisions/ADR-016-social-systems-and-character-deve
 Read `SIMULATION_MODEL.md`, `decisions/ADR-017-living-world-population-environment-and-emergence.md`, `SECURITY.md`, and `PERSISTENCE.md`.
 
 ### LLM generation / prompting
-Read `PROMPT_AND_CONTEXT.md`, `SILLYTAVERN_INTEGRATION.md`, and `DOMAIN_RULES.md`.
+Read `PROMPT_AND_CONTEXT.md`, `decisions/ADR-018-prompt-context-and-generation-integration.md`, `SILLYTAVERN_INTEGRATION.md`, and `DOMAIN_RULES.md`.
 
 ### Persistence / replay
 Read `PERSISTENCE.md` and `EVENT_AND_TIME_MODEL.md`.

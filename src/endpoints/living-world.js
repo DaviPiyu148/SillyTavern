@@ -124,6 +124,12 @@ import {
     listPromotedEntities,
     getPromotedEntityByTransientId,
     EVENT_TYPES,
+    GENERATION_MODES,
+    OUTPUT_CONTRACT_TYPES,
+    buildPromptContext,
+    allocateTokenBudget,
+    parseModelResponse,
+    generateSimulationTurn,
     getDb,
 } from '../living-world/index.js';
 import { isValidUuid, generateUuid } from '../living-world/authored/common.js';
@@ -2289,6 +2295,36 @@ router.post('/simulations/:simLwsId/promotions', (req, res) => {
         throw new LwsValidationError('Promotion requires transient_id or character_id', ['transient_id', 'character_id']);
     } catch (err) {
         return handleRouteError(err, res, 'POST /simulations/:simLwsId/promotions');
+    }
+});
+
+// 14. POST /simulations/:simLwsId/prompt-context/build
+router.post('/simulations/:simLwsId/prompt-context/build', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const body = req.body || {};
+        const context = buildPromptContext(req.params.simLwsId, body);
+        const maxTokens = body.max_tokens || body.maxTokens || 4096;
+        const budgetedContext = allocateTokenBudget(context, maxTokens, body);
+        return res.status(200).json({ context: budgetedContext });
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/prompt-context/build');
+    }
+});
+
+// 15. POST /simulations/:simLwsId/generate
+router.post('/simulations/:simLwsId/generate', async (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const body = req.body || {};
+        const result = await generateSimulationTurn(req.params.simLwsId, body, {
+            user: req.user,
+        });
+        return res.status(200).json(result);
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/generate');
     }
 });
 
