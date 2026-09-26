@@ -167,6 +167,27 @@ describe('LWS Phase 7 — Goals & Intentions Lifecycles', () => {
                 updateGoal(db, 'g-acute-1', { status: 'abandoned' });
             }).toThrow(LwsInvalidStateTransitionError);
         });
+
+        test('goal mutations emit authoritative committed events to lws_events', () => {
+            const goal = createGoal(db, sim, character, { title: 'Event-backed goal', priority: 55 });
+            const eventsAfterCreate = db.prepare('SELECT * FROM lws_events WHERE simulation_id = ?').all(sim.id);
+            expect(eventsAfterCreate.length).toBe(1);
+            expect(eventsAfterCreate[0].event_type).toBe('UPDATE_RUNTIME_STATE');
+            const createPayload = JSON.parse(eventsAfterCreate[0].payload);
+            expect(createPayload.cognition?.create_goal?.lws_id).toBe(goal.lws_id);
+
+            updateGoal(db, goal.lws_id, { progress: 40 });
+            const eventsAfterUpdate = db.prepare('SELECT * FROM lws_events WHERE simulation_id = ?').all(sim.id);
+            expect(eventsAfterUpdate.length).toBe(2);
+            const updatePayload = JSON.parse(eventsAfterUpdate[1].payload);
+            expect(updatePayload.cognition?.update_goal?.progress).toBe(40);
+
+            deleteGoal(db, goal.lws_id);
+            const eventsAfterDelete = db.prepare('SELECT * FROM lws_events WHERE simulation_id = ?').all(sim.id);
+            expect(eventsAfterDelete.length).toBe(3);
+            const deletePayload = JSON.parse(eventsAfterDelete[2].payload);
+            expect(deletePayload.cognition?.update_goal?.is_deleted).toBe(true);
+        });
     });
 
     describe('Intentions Lifecycles', () => {

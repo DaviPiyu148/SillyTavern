@@ -919,4 +919,106 @@ export function applyStateTransition(db, sim, evaluated, eventCreatedAt) {
             );
         }
     }
+
+    // Phase 7 Event-Backed Goals: Create Goal
+    if (evaluated.payload?.cognition?.create_goal && evaluated.actor_internal_id) {
+        const cg = evaluated.payload.cognition.create_goal;
+        let targetLocId = null;
+        if (cg.target_location_id) {
+            const loc = db.prepare('SELECT id FROM lws_locations WHERE lws_id = ? AND world_id = ?').get(cg.target_location_id, sim.world_id);
+            if (loc) targetLocId = loc.id;
+        }
+        let targetCharId = null;
+        if (cg.target_character_id) {
+            const tc = db.prepare('SELECT id FROM lws_simulation_characters WHERE lws_id = ? AND simulation_id = ?').get(cg.target_character_id, sim.id);
+            if (tc) targetCharId = tc.id;
+        }
+        let causalEvId = null;
+        if (cg.causal_event_id) {
+            const ev = db.prepare('SELECT id FROM lws_events WHERE lws_id = ? AND simulation_id = ?').get(cg.causal_event_id, sim.id);
+            if (ev) causalEvId = ev.id;
+        }
+
+        const existingGoal = db.prepare('SELECT id FROM lws_character_goals WHERE lws_id = ?').get(cg.lws_id);
+        if (!existingGoal) {
+            db.prepare(`
+                INSERT INTO lws_character_goals (
+                    lws_id, simulation_id, simulation_character_id, client_goal_key,
+                    title, description, goal_type, status, priority, urgency, progress,
+                    objective_action_type, target_location_id, target_character_id, target_object_id,
+                    deadline_fictional_time, causal_event_id, created_at, updated_at, deleted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            `).run(
+                cg.lws_id,
+                sim.id,
+                evaluated.actor_internal_id,
+                cg.client_goal_key ?? null,
+                cg.title,
+                cg.description || '',
+                cg.goal_type || 'short_term',
+                cg.status || 'active',
+                cg.priority ?? 50,
+                cg.urgency ?? 50,
+                cg.progress ?? 0,
+                cg.objective_action_type ?? null,
+                targetLocId,
+                targetCharId,
+                cg.target_object_id ?? null,
+                cg.deadline_fictional_time ?? null,
+                causalEvId,
+                eventCreatedAt,
+                eventCreatedAt,
+            );
+        }
+    }
+
+    // Phase 7 Event-Backed Goals: Update / Soft-Delete Goal
+    if (evaluated.payload?.cognition?.update_goal && evaluated.actor_internal_id) {
+        const ug = evaluated.payload.cognition.update_goal;
+        const goalId = ug.goal_lws_id || ug.lws_id;
+        const existing = db.prepare('SELECT * FROM lws_character_goals WHERE lws_id = ? AND simulation_id = ?').get(goalId, sim.id);
+        if (existing) {
+            if (ug.deleted_at || ug.is_deleted === true) {
+                const finalStatus = existing.status === 'completed' ? 'completed' : 'abandoned';
+                db.prepare(`
+                    UPDATE lws_character_goals
+                    SET deleted_at = ?, status = ?, updated_at = ?
+                    WHERE id = ?
+                `).run(eventCreatedAt, finalStatus, eventCreatedAt, existing.id);
+
+                db.prepare(`
+                    UPDATE lws_character_intentions
+                    SET status = 'cancelled', cancellation_reason = 'goal_deleted', updated_at = ?
+                    WHERE goal_id = ? AND status IN ('active', 'executing')
+                `).run(eventCreatedAt, existing.id);
+            } else {
+                const newTitle = ug.title !== undefined ? ug.title : existing.title;
+                const newDesc = ug.description !== undefined ? ug.description : existing.description;
+                const newStatus = ug.status !== undefined ? ug.status : existing.status;
+                const newPriority = ug.priority !== undefined ? ug.priority : existing.priority;
+                const newUrgency = ug.urgency !== undefined ? ug.urgency : existing.urgency;
+                const newProgress = ug.progress !== undefined ? ug.progress : (ug.status === 'completed' ? 100 : existing.progress);
+                const newDeadline = ug.deadline_fictional_time !== undefined ? ug.deadline_fictional_time : existing.deadline_fictional_time;
+
+                db.prepare(`
+                    UPDATE lws_character_goals
+                    SET title = ?, description = ?, status = ?, priority = ?, urgency = ?,
+                        progress = ?, deadline_fictional_time = ?, updated_at = ?
+                    WHERE id = ?
+                `).run(
+                    newTitle, newDesc, newStatus, newPriority, newUrgency,
+                    newProgress, newDeadline, eventCreatedAt, existing.id
+                );
+
+                if (newStatus === 'completed' || newStatus === 'abandoned') {
+                    const reason = newStatus === 'completed' ? 'goal_completed' : 'goal_abandoned';
+                    db.prepare(`
+                        UPDATE lws_character_intentions
+                        SET status = 'cancelled', cancellation_reason = ?, updated_at = ?
+                        WHERE goal_id = ? AND status IN ('active', 'executing')
+                    `).run(reason, eventCreatedAt, existing.id);
+                }
+            }
+        }
+    }
 }

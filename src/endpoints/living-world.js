@@ -1584,23 +1584,7 @@ router.patch('/simulations/:simLwsId/characters/:charLwsId/goals/:goalLwsId', (r
     }
 });
 
-// 7. DELETE /simulations/:simLwsId/characters/:charLwsId/goals/:goalLwsId
-router.delete('/simulations/:simLwsId/characters/:charLwsId/goals/:goalLwsId', (req, res) => {
-    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
-    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId, goalLwsId: req.params.goalLwsId }, res)) return;
-    try {
-        const db = getDb();
-        const sim = ensureMutableSimulation(db, req.params.simLwsId);
-        ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
-
-        deleteGoal(db, req.params.goalLwsId);
-        return res.status(204).send();
-    } catch (err) {
-        return handleRouteError(err, res, 'DELETE /simulations/:simLwsId/characters/:charLwsId/goals/:goalLwsId');
-    }
-});
-
-// 8. GET /simulations/:simLwsId/characters/:charLwsId/intentions
+// 7. GET /simulations/:simLwsId/characters/:charLwsId/intentions
 router.get('/simulations/:simLwsId/characters/:charLwsId/intentions', (req, res) => {
     if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
     if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
@@ -1620,7 +1604,7 @@ router.get('/simulations/:simLwsId/characters/:charLwsId/intentions', (req, res)
     }
 });
 
-// 9. GET /simulations/:simLwsId/characters/:charLwsId/values
+// 8. GET /simulations/:simLwsId/characters/:charLwsId/values
 router.get('/simulations/:simLwsId/characters/:charLwsId/values', (req, res) => {
     if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
     if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
@@ -1636,7 +1620,7 @@ router.get('/simulations/:simLwsId/characters/:charLwsId/values', (req, res) => 
     }
 });
 
-// 10. POST /simulations/:simLwsId/characters/:charLwsId/deliberate
+// 9. POST /simulations/:simLwsId/characters/:charLwsId/deliberate
 router.post('/simulations/:simLwsId/characters/:charLwsId/deliberate', (req, res) => {
     if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
     if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;

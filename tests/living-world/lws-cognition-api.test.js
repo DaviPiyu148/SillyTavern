@@ -163,11 +163,41 @@ describe('LWS Phase 7 — Cognition REST API Endpoints', () => {
         expect(patchedGoal.progress).toBe(50);
         expect(patchedGoal.priority).toBe(70);
 
-        // Delete goal -> 204
+        // Verify DELETE endpoint does not exist -> 404
         const resDelete = await fetch(`${baseUrl}/api/living-world/simulations/${simLwsId}/characters/${charLwsId}/goals/${goal.lws_id}`, {
             method: 'DELETE',
         });
-        expect(resDelete.status).toBe(204);
+        expect(resDelete.status).toBe(404);
+
+        // Soft-delete goal via PATCH with is_deleted -> 200
+        const resSoftDelete = await fetch(`${baseUrl}/api/living-world/simulations/${simLwsId}/characters/${charLwsId}/goals/${goal.lws_id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_deleted: true }),
+        });
+        expect(resSoftDelete.status).toBe(200);
+        const deletedGoal = await resSoftDelete.json();
+        expect(deletedGoal.status).toBe('abandoned');
+        expect(deletedGoal.deleted_at).toBeDefined();
+
+        // Check that events exist in lws_events for these goal mutations
+        const db = getDb();
+        const simRow = db.prepare('SELECT id FROM lws_simulations WHERE lws_id = ?').get(simLwsId);
+        const events = db.prepare('SELECT * FROM lws_events WHERE simulation_id = ?').all(simRow.id);
+        expect(events.length).toBeGreaterThan(0);
+        const goalEvents = events.filter(e => {
+            const p = JSON.parse(e.payload);
+            return p.cognition?.create_goal || p.cognition?.update_goal;
+        });
+        expect(goalEvents.length).toBeGreaterThanOrEqual(2);
+    });
+
+    test('GET /characters/:charLwsId/intentions returns intentions list', async () => {
+        const res = await fetch(`${baseUrl}/api/living-world/simulations/${simLwsId}/characters/${charLwsId}/intentions`);
+        expect(res.status).toBe(200);
+        const data = await res.json();
+        expect(data.intentions).toBeDefined();
+        expect(Array.isArray(data.intentions)).toBe(true);
     });
 
     test('GET /characters/:charLwsId/values returns 6 values', async () => {

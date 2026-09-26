@@ -190,6 +190,88 @@ export function simulationReducer(state, event) {
                     updated_at: event.created_at,
                 };
             }
+            if (payload.cognition?.create_goal && actorId) {
+                const cg = payload.cognition.create_goal;
+                state.goals[actorId] = state.goals[actorId] || {};
+                state.goals[actorId][cg.lws_id] = {
+                    lws_id: cg.lws_id,
+                    simulation_id: simLwsId,
+                    simulation_character_id: actorId,
+                    client_goal_key: cg.client_goal_key ?? null,
+                    title: cg.title,
+                    description: cg.description || '',
+                    goal_type: cg.goal_type || 'short_term',
+                    status: cg.status || 'active',
+                    priority: cg.priority ?? 50,
+                    urgency: cg.urgency ?? 50,
+                    progress: cg.progress ?? 0,
+                    objective_action_type: cg.objective_action_type ?? null,
+                    target_location_id: cg.target_location_id ?? null,
+                    target_character_id: cg.target_character_id ?? null,
+                    target_object_id: cg.target_object_id ?? null,
+                    deadline_fictional_time: cg.deadline_fictional_time ?? null,
+                    causal_event_id: cg.causal_event_id ?? null,
+                    created_at: event.created_at,
+                    updated_at: event.created_at,
+                    deleted_at: null,
+                };
+            }
+            if (payload.cognition?.update_goal && actorId) {
+                const ug = payload.cognition.update_goal;
+                const goalId = ug.goal_lws_id || ug.lws_id;
+                state.goals[actorId] = state.goals[actorId] || {};
+                if (state.goals[actorId][goalId]) {
+                    const goal = state.goals[actorId][goalId];
+                    if (ug.deleted_at || ug.is_deleted === true) {
+                        goal.deleted_at = event.created_at;
+                        if (goal.status !== 'completed') {
+                            goal.status = 'abandoned';
+                        }
+                        if (state.intentions?.[actorId]) {
+                            for (const intention of Object.values(state.intentions[actorId])) {
+                                if (String(intention.goal_id) === String(goalId) && (intention.status === 'active' || intention.status === 'executing')) {
+                                    intention.status = 'cancelled';
+                                    intention.cancellation_reason = 'goal_deleted';
+                                    intention.updated_at = event.created_at;
+                                }
+                            }
+                        }
+                    } else {
+                        if (ug.title !== undefined) goal.title = ug.title;
+                        if (ug.description !== undefined) goal.description = ug.description;
+                        if (ug.priority !== undefined) goal.priority = ug.priority;
+                        if (ug.urgency !== undefined) goal.urgency = ug.urgency;
+                        if (ug.progress !== undefined) goal.progress = ug.progress;
+                        if (ug.deadline_fictional_time !== undefined) goal.deadline_fictional_time = ug.deadline_fictional_time;
+                        if (ug.status !== undefined) {
+                            goal.status = ug.status;
+                            if (ug.status === 'completed') {
+                                if (ug.progress === undefined) goal.progress = 100;
+                                if (state.intentions?.[actorId]) {
+                                    for (const intention of Object.values(state.intentions[actorId])) {
+                                        if (String(intention.goal_id) === String(goalId) && (intention.status === 'active' || intention.status === 'executing')) {
+                                            intention.status = 'cancelled';
+                                            intention.cancellation_reason = 'goal_completed';
+                                            intention.updated_at = event.created_at;
+                                        }
+                                    }
+                                }
+                            } else if (ug.status === 'abandoned') {
+                                if (state.intentions?.[actorId]) {
+                                    for (const intention of Object.values(state.intentions[actorId])) {
+                                        if (String(intention.goal_id) === String(goalId) && (intention.status === 'active' || intention.status === 'executing')) {
+                                            intention.status = 'cancelled';
+                                            intention.cancellation_reason = 'goal_abandoned';
+                                            intention.updated_at = event.created_at;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    goal.updated_at = event.created_at;
+                }
+            }
             if (payload.cognition?.needs && actorId) {
                 state.needs[actorId] = state.needs[actorId] || {};
                 for (const [k, v] of Object.entries(payload.cognition.needs)) {
@@ -1036,6 +1118,46 @@ export function verifySimulationParity(simLwsId) {
         }
         if ((ri.cancellation_reason || null) !== (di.cancellation_reason || null)) {
             throw new Error(`Intention ${di.lws_id} cancellation_reason drift: replayed=${ri.cancellation_reason}, db=${di.cancellation_reason}`);
+        }
+    }
+
+    // 11. Compare Goals (Phase 7)
+    const dbGoals = db.prepare(`
+        SELECT g.*, sc.lws_id AS char_lws_id
+        FROM lws_character_goals g
+        JOIN lws_simulation_characters sc ON g.simulation_character_id = sc.id
+        WHERE g.simulation_id = ?
+    `).all(sim.id);
+
+    for (const dg of dbGoals) {
+        const charGoals = replayed.goals[dg.char_lws_id] || {};
+        const rg = charGoals[dg.lws_id];
+        if (!rg) {
+            throw new Error(`Goal ${dg.lws_id} missing in replayed state`);
+        }
+        if (rg.title !== dg.title) {
+            throw new Error(`Goal ${dg.lws_id} title drift: replayed=${rg.title}, db=${dg.title}`);
+        }
+        if (rg.status !== dg.status) {
+            throw new Error(`Goal ${dg.lws_id} status drift: replayed=${rg.status}, db=${dg.status}`);
+        }
+        if (rg.priority !== dg.priority) {
+            throw new Error(`Goal ${dg.lws_id} priority drift: replayed=${rg.priority}, db=${dg.priority}`);
+        }
+        if (rg.urgency !== dg.urgency) {
+            throw new Error(`Goal ${dg.lws_id} urgency drift: replayed=${rg.urgency}, db=${dg.urgency}`);
+        }
+        if (rg.progress !== dg.progress) {
+            throw new Error(`Goal ${dg.lws_id} progress drift: replayed=${rg.progress}, db=${dg.progress}`);
+        }
+        if ((rg.client_goal_key || null) !== (dg.client_goal_key || null)) {
+            throw new Error(`Goal ${dg.lws_id} client_goal_key drift: replayed=${rg.client_goal_key}, db=${dg.client_goal_key}`);
+        }
+        if (rg.goal_type !== dg.goal_type) {
+            throw new Error(`Goal ${dg.lws_id} goal_type drift: replayed=${rg.goal_type}, db=${dg.goal_type}`);
+        }
+        if ((rg.deleted_at ? new Date(rg.deleted_at).toISOString() : null) !== (dg.deleted_at ? new Date(dg.deleted_at).toISOString() : null)) {
+            throw new Error(`Goal ${dg.lws_id} deleted_at drift: replayed=${rg.deleted_at}, db=${dg.deleted_at}`);
         }
     }
 

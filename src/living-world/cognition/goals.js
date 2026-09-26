@@ -1,6 +1,8 @@
 import { generateDeterministicUuid, goalTargetType, targetsMatch } from './common.js';
 import { LwsValidationError, LwsNotFoundError, LwsConflictError, LwsInvalidStateTransitionError } from '../errors.js';
 import { isValidUuid, isoNow } from '../simulations/common.js';
+import { EVENT_TYPES } from '../events/taxonomy.js';
+import { internalCommitEvent } from '../events/events.js';
 
 export const GOAL_TYPES = Object.freeze([
     'short_term',
@@ -211,35 +213,32 @@ export function createGoal(db, sim, character, input, options = {}) {
         goalLwsId = generateDeterministicUuid('goal', sim.lws_id, character.lws_id, causalEventLwsId || 'authored', String(goalIndex));
     }
 
-    const createdAt = options.createdAt || isoNow();
-
-    db.prepare(`
-        INSERT INTO lws_character_goals (
-            lws_id, simulation_id, simulation_character_id, client_goal_key,
-            title, description, goal_type, status, priority, urgency, progress,
-            objective_action_type, target_location_id, target_character_id, target_object_id,
-            deadline_fictional_time, causal_event_id, created_at, updated_at, deleted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-    `).run(
-        goalLwsId,
-        sim.id,
-        character.id,
-        clientGoalKey,
-        input.title.trim(),
-        input.description || '',
-        goalType,
-        priority,
-        urgency,
-        progress,
-        input.objective_action_type || null,
-        targetLocInternalId,
-        targetCharInternalId,
-        targetObjectId,
-        input.deadline_fictional_time || null,
-        causalEventInternalId,
-        createdAt,
-        createdAt,
-    );
+    internalCommitEvent(db, sim, {
+        event_type: EVENT_TYPES.UPDATE_RUNTIME_STATE,
+        actor_character_id: character.lws_id,
+        fictional_time: sim.current_fictional_time,
+        provenance: options.provenance || 'user',
+        payload: {
+            cognition: {
+                create_goal: {
+                    lws_id: goalLwsId,
+                    client_goal_key: clientGoalKey,
+                    title: input.title.trim(),
+                    description: input.description || '',
+                    goal_type: goalType,
+                    priority,
+                    urgency,
+                    progress,
+                    objective_action_type: input.objective_action_type || null,
+                    target_location_id: input.target_location_id || null,
+                    target_character_id: input.target_character_id || null,
+                    target_object_id: targetObjectId,
+                    deadline_fictional_time: input.deadline_fictional_time || null,
+                    causal_event_id: causalEventLwsId,
+                }
+            }
+        }
+    }, { isDedicatedRoute: true, isAdmin: true });
 
     return getGoalByLwsId(db, goalLwsId);
 }
@@ -430,40 +429,32 @@ export function updateGoal(db, goalLwsId, patch = {}, options = {}) {
         newPriority = p;
     }
 
-    const newTitle = patch.title !== undefined ? String(patch.title).trim() : existing.title;
-    const newDescription = patch.description !== undefined ? String(patch.description) : existing.description;
-    const newUrgency = patch.urgency !== undefined ? Math.max(1, Math.min(100, Math.round(patch.urgency))) : existing.urgency;
-    const newProgress = patch.progress !== undefined ? Math.max(0, Math.min(100, Math.round(patch.progress))) : existing.progress;
-    const newDeadline = patch.deadline_fictional_time !== undefined ? patch.deadline_fictional_time : existing.deadline_fictional_time;
+    const sim = db.prepare('SELECT * FROM lws_simulations WHERE id = ?').get(existing.simulation_id);
+    const char = db.prepare('SELECT * FROM lws_simulation_characters WHERE id = ?').get(existing.simulation_character_id);
 
-    const updatedAt = options.updatedAt || isoNow();
-
-    db.prepare(`
-        UPDATE lws_character_goals
-        SET title = ?, description = ?, status = ?, priority = ?, urgency = ?,
-            progress = ?, deadline_fictional_time = ?, updated_at = ?
-        WHERE id = ?
-    `).run(
-        newTitle,
-        newDescription,
-        newStatus,
-        newPriority,
-        newUrgency,
-        newProgress,
-        newDeadline,
-        updatedAt,
-        existing.id,
-    );
-
-    // If goal transitioned to completed or abandoned, cancel active child intentions
-    if (newStatus === 'completed' || newStatus === 'abandoned') {
-        const reason = newStatus === 'completed' ? 'goal_completed' : 'goal_abandoned';
-        db.prepare(`
-            UPDATE lws_character_intentions
-            SET status = 'cancelled', cancellation_reason = ?, updated_at = ?
-            WHERE goal_id = ? AND status IN ('active', 'executing')
-        `).run(reason, updatedAt, existing.id);
-    }
+    internalCommitEvent(db, sim, {
+        event_type: EVENT_TYPES.UPDATE_RUNTIME_STATE,
+        actor_character_id: char.lws_id,
+        fictional_time: sim.current_fictional_time,
+        provenance: options.provenance || 'user',
+        payload: {
+            cognition: {
+                update_goal: {
+                    goal_lws_id: goalLwsId,
+                    lws_id: goalLwsId,
+                    title: patch.title !== undefined ? String(patch.title).trim() : undefined,
+                    description: patch.description !== undefined ? String(patch.description) : undefined,
+                    status: patch.status !== undefined ? newStatus : undefined,
+                    priority: patch.priority !== undefined ? newPriority : undefined,
+                    urgency: patch.urgency !== undefined ? Math.max(1, Math.min(100, Math.round(patch.urgency))) : undefined,
+                    progress: patch.progress !== undefined ? Math.max(0, Math.min(100, Math.round(patch.progress))) : undefined,
+                    deadline_fictional_time: patch.deadline_fictional_time !== undefined ? patch.deadline_fictional_time : undefined,
+                    deleted_at: patch.deleted_at ?? (patch.is_deleted === true ? true : undefined),
+                    is_deleted: patch.is_deleted,
+                }
+            }
+        }
+    }, { isDedicatedRoute: true, isAdmin: true });
 
     return getGoalByLwsId(db, goalLwsId);
 }
@@ -482,32 +473,7 @@ export function updateCharacterGoal(db, sim, character, goalLwsId, patch, option
  * @returns {object} Formatted goal
  */
 export function deleteGoal(db, goalLwsId, options = {}) {
-    const existing = db.prepare(`
-        SELECT * FROM lws_character_goals
-        WHERE lws_id = ?
-    `).get(goalLwsId);
-
-    if (!existing) {
-        throw new LwsNotFoundError(`Goal with lws_id '${goalLwsId}' not found`, 'GOAL_NOT_FOUND', ['goalLwsId']);
-    }
-
-    const updatedAt = options.updatedAt || isoNow();
-    const finalStatus = existing.status === 'completed' ? 'completed' : 'abandoned';
-
-    db.prepare(`
-        UPDATE lws_character_goals
-        SET deleted_at = ?, status = ?, updated_at = ?
-        WHERE id = ?
-    `).run(updatedAt, finalStatus, updatedAt, existing.id);
-
-    // Cancel child intentions with 'goal_deleted'
-    db.prepare(`
-        UPDATE lws_character_intentions
-        SET status = 'cancelled', cancellation_reason = 'goal_deleted', updated_at = ?
-        WHERE goal_id = ? AND status IN ('active', 'executing')
-    `).run(updatedAt, existing.id);
-
-    return getGoalByLwsId(db, goalLwsId);
+    return updateGoal(db, goalLwsId, { is_deleted: true }, options);
 }
 
 export function softDeleteCharacterGoal(db, sim, character, goalLwsId, options) {
