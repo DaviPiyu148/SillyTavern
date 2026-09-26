@@ -4,6 +4,7 @@
  */
 
 import { escapeHtml } from '../utils.js';
+export { escapeHtml };
 
 /**
  * Helper to safely format a fictional or real ISO timestamp into a readable string.
