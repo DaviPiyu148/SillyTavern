@@ -59,8 +59,7 @@ Travel consumes fictional time; older instantaneous-travel interpretation is sup
 | **Phase 8** | **Social Systems and Character Development** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 008 applied (`PRAGMA user_version = 8`); exactly 5 new runtime tables (`lws_character_relationships`, `lws_relationship_evidence`, `lws_social_information`, `lws_character_faction_memberships`, `lws_character_development_records`); exactly 15 Phase 8 DB triggers (70 cumulative across Phase 4–8 tables); exactly 10 new indexes (41 cumulative across Phase 4–8 tables); 6 social modules in `src/living-world/social/`; directional asymmetric relationship graphs with 5 dimensions (`trust`, `affection`, `familiarity`, `respect`, `loyalty`); 30-day exponential familiarity decay with 7-day grace period ($\tau = 30\,\text{days}$); append-only interaction evidence ledger; rumor transmission trees with 17 topology invariant tests (13 negative + 4 positive) and bounded depth ($0..5$); trust-gated subjective belief adoption; non-hive runtime faction memberships with individual values/needs/beliefs; causal character development ledger requiring verifiable causal events with dual-store projection; cognition scoring extensions ($U_{\text{social}}$) with moral veto precedence; pure in-memory zero-SQL replay engine with 100% field-level parity verification across all 5 Phase 8 tables + beliefs; 11 Tri-Tier REST API routes; targeted test suite passing (8 dedicated Phase 8 suites, 58 tests); full repository Living World unit suite passing (54/54 suites, 400/400 tests); linters clean (0 errors); ADR-016 authored. |
 | **Phase 9** | **Living World, Population Tiers, Environment, and Emergence** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Migration 009 applied (`PRAGMA user_version = 9`); exactly 5 new tables (`lws_ambient_archetypes`, `lws_location_environments`, `lws_location_operational_states`, `lws_simulation_character_tiers`, `lws_promoted_entity_records`); exactly 15 Phase 9 DB triggers (85 cumulative across system); exactly 10 new indexes (51 cumulative across tables); tri-tier population classification (`CORE`, `SUPPORTING`, `AMBIENT`); deterministic ephemeral ambient population generation with collision-proof transient IDs (`generateAmbientPopulation`); dynamic entity promotion pipeline with promotion provenance (`lws_promoted_entity_records`); environmental sensory clarity scoring; pure in-memory zero-SQL replay engine with 100% parity verification; 12 REST endpoints; ADR-017 authored. |
 | **Phase 10** | **Prompt, Context, and ST Generation Integration** | **IMPLEMENTED, VERIFIED, ACCEPTED** | 12-layer dynamic prompt context builder (`buildPromptContext`) with fail-closed `authored_snapshot` isolation; priority-based token budgeting & graceful layer trimming (`allocateTokenBudget`); zero-omniscience perspective isolation and anti-leakage invariants; dual-block output parsing (`parseModelResponse`); 2-transaction savepoint execution pipeline (`executeNarrativeTurn`); ST generation integration (`generateSimulationTurn`); REST endpoints (`POST /api/living-world/simulations/:simLwsId/prompt-context/build`, `POST /api/living-world/simulations/:simLwsId/generate`); 6 dedicated Phase 10 test suites (22/22 tests passing); full Living World suite passing; ADR-018 authored. Formally reviewed and accepted by user. |
-| **Phase 11** | **Import, Normalization, and Authoring Workflow** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Ingestion modules in `src/living-world/import/`: Character Card normalizer (V1/V2/V3 JSON & PNG chunk extraction with `ccv3` over `chara` precedence, 22-field mapping, vendor preservation), Lorebook / World Info 5D structural classification scoring ($S_{\text{rule}}, S_{\text{loc}}, S_{\text{fac}}, S_{\text{arch}}, S_{\text{char}}$) with ambiguity detection ($\Delta_{\text{margin}} < 0.20$) and conservative flavor fallback into `candidate_entities.lore_entries`, Canonical LWS World Manifest (`lws_world_manifest_v1`) JSON & secure YAML parser/serializer (`maxAliasCount: 50`, 2 MB limit) with round-trip parity verification (`compareManifestParity`), Freeform outline chunker & AI normalization with negative no-invention contract, Active collision detector across all 10 authored tables with 4 explicit policies (`REJECT`, `RENAME`, `REPLACE`, `MERGE`), HMAC-SHA256 preview token generator & in-transaction TOCTOU re-validation against 10-table `preview_state_hash`, End-to-end provenance preservation in `extensions.provenance` (0 DB migrations, `PRAGMA user_version = 9`); exactly 9 REST endpoints mounted in `src/endpoints/living-world.js`; exactly 8 dedicated Phase 11 test suites (74/74 tests passing); full subsystem test suite passing (78/78 suites, 537/537 tests passing); ADR-019 authored. |
-| Phase 12 | Native SillyTavern User Workflow and UI | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
+| **Phase 12** | **Native SillyTavern User Workflow and UI** | **IMPLEMENTED, VERIFIED, ACCEPTED** | Complete native SillyTavern UI subsystem integrated under `public/scripts/living-world/` and `public/css/living-world.css`; 10 modular components and views (`index.js`, `state.js`, `api.js`, `templates.js`, `slash-commands.js`, `ui-shell.js`, `ui-world-browser.js`, `ui-authored-roster.js`, `ui-import-wizard.js`, `ui-narrative-view.js`, `ui-mind-inspector.js`, `ui-director-console.js`); 7 native slash commands registered (`/lws`, `/lws-time`, `/lws-time-set`, `/lws-camera`, `/lws-inspect`, `/lws-director`, `/lws-generate`); 5-stage session hydration with client-local `accountStorage` sync and backend SQLite authority; full entity CRUD lifecycle verified across all 10 authored entities and simulation runtime; multi-character autonomy proven (AC-3a off-camera routine travel, AC-3b zero sensory leakage, AC-3c camera switch revealing state without synthesizing memories); 100% scoped CSS under `#lws-workspace` and `.lws-*` with native ST theme variables; semantic HTML landmarks and ARIA accessibility; zero browser dependencies (Node-only Jest verification); exactly 7 dedicated Phase 12 test suites (59/59 tests passing); full subsystem test suite passing (85/85 suites, 596/596 tests passing); full repository suite passing (104/104 suites, 1007/1007 tests passing); zero DB schema migrations (`PRAGMA user_version = 9`); ADR-020 authored. |
 | Phase 13 | Replay, Hardening, Release Readiness, Long-Run Verification | DESIGNED | Roadmap defined in `PHASE_DEVELOPMENT_PLAN.md`. Not started. |
 
 ### Phase 2 Implementation Details and Scope Distinction
@@ -436,8 +435,49 @@ Phase 11 establishes the complete import, normalization, provenance, conflict re
 - **Architecture Decision Record**:
   - Authored `docs/living-world/decisions/ADR-019-import-normalization-and-authoring-workflow.md`.
 
-#### 2. Future Scope Distinction (Phase 12+)
-- **Phase 12 Future Scope**: Native SillyTavern User Workflow and UI (character creation UI, world editor, simulation dashboard, inspector panels).
+### Phase 12 Implementation Details: Native SillyTavern User Workflow and UI
+
+Phase 12 delivers the native user interface and operational workflow within SillyTavern, fully exposing the multi-phase simulation engine through native UI conventions, theme variables, popups, slash commands, and accessible HTML templates without introducing foreign frameworks or browser automation dependencies.
+
+#### 1. Delivered Capabilities & Architecture
+- **Frontend Subsystem Architecture (`public/scripts/living-world/`)**:
+  - `index.js`: Subsystem coordinator, top-bar icon button injection (`#lws-topbar-button`), component mount orchestrator, and 5-stage session hydration.
+  - `state.js`: Reactive event-driven state store with `accountStorage` convenience caching and `resetOn404()` resilience.
+  - `api.js`: Typed REST API client wrapping all required `/api/living-world/*` endpoints with parameter alias normalization.
+  - `templates.js`: Semantic HTML landmarks (`<main>`, `<header>`, `<nav>`, `<section>`, `<article>`), ARIA accessibility, progress bar math, and strict `escapeHtml()` sanitization.
+  - `slash-commands.js`: 7 registered slash commands (`/lws`, `/lws-time`, `/lws-time-set`, `/lws-camera`, `/lws-inspect`, `/lws-director`, `/lws-generate`) with duration parsing and dedicated route dispatch.
+  - `ui-shell.js`: Workspace layout, top-bar navigation, mode badges (World, Sim, Clock, Camera), drawer toggle.
+  - `ui-world-browser.js`: World listing, creation, editing, deletion, scenario management, simulation launcher modal.
+  - `ui-authored-roster.js`: Full entity CRUD for characters, hierarchical locations, factions, world rules, ambient archetypes; membership management; prompt config editing.
+  - `ui-import-wizard.js`: Phase 11 import modal for Character Cards, Lorebooks, Freeform text, and Canonical Manifests with 2-stage preview and HMAC commit.
+  - `ui-narrative-view.js`: Chronological turn stream, dialogue bubbles, user prompt input dispatch (`/generate`).
+  - `ui-mind-inspector.js`: Epistemic mind inspector: needs progress bars, active goals, subjective beliefs, perspective filtering.
+  - `ui-director-console.js`: Time advancement, camera switching, dedicated social/environment interventions, entity promotions.
+- **Native Look & Feel & Scoped CSS (`public/css/living-world.css`)**:
+  - 100% selector scoping under `#lws-workspace`, `#lws-*`, and `.lws-*`.
+  - Zero CSS leakage into outer SillyTavern containers.
+  - Native SillyTavern theme custom properties (`var(--SmartThemeBodyColor)`, `var(--SmartThemeBorderColor)`, `var(--SmartThemeChatTintColor)`).
+- **Epistemic Isolation & Autonomy Verification**:
+  - **AC-3a (Off-Camera Progression)**: Advancing time while following Dave causes off-camera Charlotte to progress routines and travel in SQLite independently.
+  - **AC-3b (Zero Sensory Leakage)**: Dave's subjective perspective reveals zero unperceived sensory info, distant knowledge, memories, or beliefs.
+  - **AC-3c (Camera Switch & Rehydration)**: Switching camera to Charlotte immediately reveals her authoritative location and state without synthesizing memories.
+  - **AC-4 (Mind Inspector vs Observer Ground Truth)**: In `follow_character` mode, only subjective cognition is displayed. Observer perspective returns privileged ground truth with read-only semantics.
+- **Dedicated Test Suites (`tests/living-world/`)**:
+  - 7 dedicated Phase 12 test suites passing (59/59 tests):
+    1. `lws-ui-state.test.js`: 6 tests
+    2. `lws-ui-templates.test.js`: 8 tests
+    3. `lws-ui-api-client.test.js`: 6 tests
+    4. `lws-ui-slash-commands.test.js`: 9 tests
+    5. `lws-ui-workflow-integration.test.js`: 9 tests
+    6. `lws-ui-epistemic-camera.test.js`: 5 tests
+    7. `lws-ui-static-contracts.test.js`: 16 tests
+  - Cumulative Living World subsystem: 85 suites, 596/596 tests passing.
+  - Full SillyTavern repository: 104 suites, 1007/1007 tests passing.
+- **Architecture Decision Record**:
+  - Authored `docs/living-world/decisions/ADR-020-native-sillytavern-user-workflow-and-ui.md`.
+
+#### 2. Future Scope Distinction (Phase 13+)
+- **Phase 13 Future Scope**: Replay, Hardening, Release Readiness, Long-Run Verification (long-horizon simulation stability, stress testing, release packaging).
 
 ## Status labels
 

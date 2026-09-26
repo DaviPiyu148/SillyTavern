@@ -28,6 +28,50 @@ Tests/checks and result.
 Known limitations or implications.
 ```
 
+## 2026-09-26 — Phase 12: Native SillyTavern User Workflow and UI
+
+Status: IMPLEMENTED / VERIFIED / ACCEPTED
+
+### Change
+Implemented complete native SillyTavern user workflow and UI subsystem for the Living World Simulator:
+
+1. **Frontend Architecture (`public/scripts/living-world/`):**
+   - `index.js`: Subsystem coordinator, top-bar icon button injection (`#lws-topbar-button`), component mount orchestrator, and 5-stage session hydration.
+   - `state.js`: Reactive event-driven state store with `accountStorage` convenience caching and `resetOn404()` resilience.
+   - `api.js`: Typed REST API client wrapping all required `/api/living-world/*` endpoints with parameter alias normalization.
+   - `templates.js`: Semantic HTML landmarks (`<main>`, `<header>`, `<nav>`, `<section>`, `<article>`), ARIA accessibility, progress bar math, and strict `escapeHtml()` sanitization.
+   - `slash-commands.js`: 7 registered slash commands (`/lws`, `/lws-time`, `/lws-time-set`, `/lws-camera`, `/lws-inspect`, `/lws-director`, `/lws-generate`) with duration parsing and dedicated route dispatch.
+   - `ui-shell.js`: Workspace layout, top-bar navigation, mode badges (World, Sim, Clock, Camera), drawer toggle.
+   - `ui-world-browser.js`: World listing, creation, editing, deletion, scenario management, simulation launcher modal.
+   - `ui-authored-roster.js`: Full entity CRUD for characters, hierarchical locations, factions, world rules, ambient archetypes; membership management; prompt config editing.
+   - `ui-import-wizard.js`: Phase 11 import modal for Character Cards, Lorebooks, Freeform text, and Canonical Manifests with 2-stage preview and HMAC commit.
+   - `ui-narrative-view.js`: Chronological turn stream, dialogue bubbles, user prompt input dispatch (`/generate`).
+   - `ui-mind-inspector.js`: Epistemic mind inspector: needs progress bars, active goals, subjective beliefs, perspective filtering.
+   - `ui-director-console.js`: Time advancement, camera switching, dedicated social/environment interventions, entity promotions.
+
+2. **Native Styling (`public/css/living-world.css`) & Host Mount (`public/index.html`):**
+   - 100% selector scoping under `#lws-workspace`, `#lws-*`, and `.lws-*`.
+   - Reuses native SillyTavern theme custom properties (`var(--SmartThemeBodyColor)`, `var(--SmartThemeBorderColor)`, `var(--SmartThemeChatTintColor)`).
+   - Linked stylesheet in `<head>` and mounted `<script type="module" src="scripts/living-world/index.js"></script>`.
+
+3. **Authority, Epistemic Discipline, & Autonomy Proofs:**
+   - Authoritative SQLite persistence; `accountStorage` is client-local convenience state only.
+   - AC-3a: Advancing time while following Dave causes off-camera Charlotte to progress routines and travel in SQLite independently.
+   - AC-3b: Dave's subjective perspective query reveals zero unperceived sensory information, distant knowledge, memories, or beliefs.
+   - AC-3c: Switching camera to Charlotte immediately reveals her authoritative location and state without synthesizing memories.
+   - AC-4: In `follow_character` mode, only subjective cognition is displayed. Observer perspective returns privileged ground truth with read-only semantics.
+
+4. **Non-Browser Automated Verification:**
+   - 7 dedicated Phase 12 test suites passing (59/59 tests): `lws-ui-state.test.js` (6), `lws-ui-templates.test.js` (8), `lws-ui-api-client.test.js` (6), `lws-ui-slash-commands.test.js` (9), `lws-ui-workflow-integration.test.js` (9), `lws-ui-epistemic-camera.test.js` (5), `lws-ui-static-contracts.test.js` (16).
+   - Cumulative Living World subsystem: 85 suites, 596/596 tests passing.
+   - Full SillyTavern repository: 104 suites, 1007/1007 tests passing.
+   - Zero DB schema migrations (`PRAGMA user_version = 9`).
+
+### Architecture
+Authored `docs/living-world/decisions/ADR-020-native-sillytavern-user-workflow-and-ui.md`.
+
+---
+
 ## 2026-09-26 — Phase 11: Import, Normalization, Provenance, and Authored Creation Workflow
 
 Status: IMPLEMENTED / VERIFIED / ACCEPTED

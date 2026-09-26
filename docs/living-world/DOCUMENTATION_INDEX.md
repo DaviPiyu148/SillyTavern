@@ -16,6 +16,7 @@
 | `PERSISTENCE.md` | SQLite, event history, projections, durability, replay |
 | `IMPORT_AND_NORMALIZATION.md` | Importing ST cards/world info/freeform content |
 | `PHASE_11_PLAN.md` | Phase 11 planning artifact for Import, Normalization, and Authoring Workflow |
+| `PHASE_12_PLAN.md` | Phase 12 planning artifact for Native SillyTavern User Workflow and UI |
 | `SECURITY.md` | Trust boundaries and security invariants |
 | `REPOSITORY_STRUCTURE.md` | Where LWS code/data/tests/docs belong |
 | `DEVELOPMENT_WORKFLOW.md` | How an AI agent should implement changes |
@@ -39,6 +40,7 @@
 - `ADR-017`: Living World, Population Tiers, Environmental Dynamics, Operational States, and Emergence (Phase 9).
 - `ADR-018`: Prompt, Context, Perspective Isolation, and SillyTavern Generation Integration (Phase 10).
 - `ADR-019`: Import, Normalization, Provenance, and Authored Creation Workflow (Phase 11).
+- `ADR-020`: Native SillyTavern User Workflow and UI Architecture (Phase 12).
 
 ## Task routing
 
