@@ -50,3 +50,14 @@ Putting LWS text first or last in a prompt is not a sufficient control. Applicat
 - **Lifecycle gating**: Cognition endpoints enforce simulation status checks (rejecting mutations on paused or archived simulations with HTTP 400).
 - **Auditability**: All goal, need, and intention mutations must be committed through the authoritative event ledger (`UPDATE_RUNTIME_STATE`) to preserve an unbroken audit trail and prevent direct-SQL tampering.
 
+## Social systems, rumors, and character development invariants
+
+- **Tri-tier endpoint authorization & perspective isolation**:
+  - *Observer Tier (Read-Only Ground Truth)*: Unrestricted simulation ground-truth inspection (relationship matrices, evidence chains, rumor transmission trees, complete faction rosters, and global development history). Enforces read-only semantics with no state mutation capabilities.
+  - *Character-Subjective Tier (Knowledge-Isolated)*: Strict character perspective filtering (`/simulations/:simLwsId/characters/:charLwsId/social-view`). Exposes only relationships originating from the character, subjective beliefs adopted from received social information, current individual faction rank/standing, and personal development records. Completely prevents omniscience leakage or third-party secret disclosure.
+  - *Director Tier (Authoritative State Transitions)*: Authoritative simulation interventions (`POST /relationships/modify`, `POST /rumors/inject`, `POST /factions/memberships/override`, `POST /development/record-override`) execute strictly via validated event ledger transactions (`DIRECTOR_MODIFY_STATE`, `UPDATE_RUNTIME_STATE`) with mandatory provenance logging.
+- **Non-hive-mind isolation**: Information propagation occurs strictly through point-to-point physical communication (`COMMUNICATE`) or direct perception. Characters never instantaneously share beliefs or rumors across distances without explicit causal transmission events.
+- **Character development causality verification**: Development records require verified causal event IDs belonging to the same simulation for all non-director trigger categories (`acute_trauma`, `sustained_experience`, `social_reinforcement`, `cognitive_dissonance`), preventing unearned or synthetic personality mutations.
+- **Rumor tree topology integrity**: Enforces 17 structural invariants across database triggers and application code, guaranteeing that rumor trees maintain strictly monotonic depths ($0 \le d \le 5$), valid parent/root references, identical simulation lineage, and immutable propagation provenance.
+
+

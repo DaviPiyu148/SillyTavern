@@ -93,6 +93,18 @@ import {
     getCharacterValues,
     getCharacterEmotion,
     deliberateCharacter,
+    getRelationship,
+    getRelationshipByCharacters,
+    listCharacterRelationships,
+    exportSocialGraph,
+    listRelationshipEvidence,
+    getSocialInformationByLwsId,
+    listSocialInformation,
+    getRumorTree,
+    listKnownRumors,
+    getCharacterFactionMemberships,
+    listSimulationFactionMemberships,
+    listCharacterDevelopmentRecords,
     EVENT_TYPES,
     getDb,
 } from '../living-world/index.js';
@@ -1650,6 +1662,250 @@ router.post('/simulations/:simLwsId/characters/:charLwsId/deliberate', (req, res
         return res.json(result);
     } catch (err) {
         return handleRouteError(err, res, 'POST /simulations/:simLwsId/characters/:charLwsId/deliberate');
+    }
+});
+
+// ============================================================================
+// Phase 8: Social Systems & Character Development Endpoints
+// ============================================================================
+
+// Tier 1: Privileged Observer
+
+// 1. GET /simulations/:simLwsId/social/graph
+router.get('/simulations/:simLwsId/social/graph', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const graph = exportSocialGraph(db, sim.id);
+        return res.json({ graph });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/social/graph');
+    }
+});
+
+// 2. GET /simulations/:simLwsId/social-information
+router.get('/simulations/:simLwsId/social-information', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const info = listSocialInformation(db, sim.id, {
+            topic: req.query.topic,
+            originator_character_id: req.query.originator_character_id,
+            recipient_character_id: req.query.recipient_character_id,
+            limit: req.query.limit,
+            offset: req.query.offset,
+        });
+        return res.json({ social_information: info });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/social-information');
+    }
+});
+
+// 3. GET /simulations/:simLwsId/social-information/:infoLwsId/tree
+router.get('/simulations/:simLwsId/social-information/:infoLwsId/tree', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, infoLwsId: req.params.infoLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const tree = getRumorTree(db, sim.id, req.params.infoLwsId);
+        return res.json({ tree });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/social-information/:infoLwsId/tree');
+    }
+});
+
+// 4. GET /simulations/:simLwsId/faction-memberships
+router.get('/simulations/:simLwsId/faction-memberships', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const memberships = listSimulationFactionMemberships(db, sim.id, {
+            faction_id: req.query.faction_id,
+            character_id: req.query.character_id,
+            membership_status: req.query.membership_status,
+            limit: req.query.limit,
+            offset: req.query.offset,
+        });
+        return res.json({ faction_memberships: memberships });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/faction-memberships');
+    }
+});
+
+// Tier 2: Subjective Character
+
+// 5. GET /simulations/:simLwsId/characters/:charLwsId/relationships
+router.get('/simulations/:simLwsId/characters/:charLwsId/relationships', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const char = ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+        const relationships = listCharacterRelationships(db, sim.id, char.id, {
+            min_familiarity: req.query.min_familiarity !== undefined ? Number(req.query.min_familiarity) : undefined,
+            limit: req.query.limit,
+            offset: req.query.offset,
+        });
+        return res.json({ relationships });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/relationships');
+    }
+});
+
+// 6. GET /simulations/:simLwsId/characters/:charLwsId/relationships/:targetCharLwsId
+router.get('/simulations/:simLwsId/characters/:charLwsId/relationships/:targetCharLwsId', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId, targetCharLwsId: req.params.targetCharLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const char = ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+        const targetChar = ensureSimulationCharacter(db, sim.id, req.params.targetCharLwsId);
+        const relationship = getRelationshipByCharacters(db, sim.id, char.id, targetChar.id);
+        if (!relationship) {
+            return res.json({
+                source_character_id: char.lws_id,
+                target_character_id: targetChar.lws_id,
+                trust: 0,
+                affection: 0,
+                familiarity: 0,
+                respect: 0,
+                loyalty: 0,
+                last_interaction_fictional_time: null,
+            });
+        }
+        return res.json(relationship);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/relationships/:targetCharLwsId');
+    }
+});
+
+// 7. GET /simulations/:simLwsId/characters/:charLwsId/relationships/:targetCharLwsId/evidence
+router.get('/simulations/:simLwsId/characters/:charLwsId/relationships/:targetCharLwsId/evidence', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId, targetCharLwsId: req.params.targetCharLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const char = ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+        const targetChar = ensureSimulationCharacter(db, sim.id, req.params.targetCharLwsId);
+        const relationship = getRelationshipByCharacters(db, sim.id, char.id, targetChar.id);
+        if (!relationship) {
+            return res.json({ evidence: [] });
+        }
+        const evidence = listRelationshipEvidence(db, sim.id, relationship.lws_id, {
+            interaction_type: req.query.interaction_type,
+            limit: req.query.limit,
+            offset: req.query.offset,
+        });
+        return res.json({ evidence });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/relationships/:targetCharLwsId/evidence');
+    }
+});
+
+// 8. GET /simulations/:simLwsId/characters/:charLwsId/factions
+router.get('/simulations/:simLwsId/characters/:charLwsId/factions', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const char = ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+        const factions = getCharacterFactionMemberships(db, sim.id, char.id);
+        return res.json({ factions });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/factions');
+    }
+});
+
+// 9. GET /simulations/:simLwsId/characters/:charLwsId/development
+router.get('/simulations/:simLwsId/characters/:charLwsId/development', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const char = ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+        const development = listCharacterDevelopmentRecords(db, sim.id, char.id, {
+            dimension_category: req.query.dimension_category,
+            limit: req.query.limit,
+            offset: req.query.offset,
+        });
+        return res.json({ development });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/development');
+    }
+});
+
+// 10. GET /simulations/:simLwsId/characters/:charLwsId/known-rumors
+router.get('/simulations/:simLwsId/characters/:charLwsId/known-rumors', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const char = ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+        const rumors = listKnownRumors(db, sim.id, char.id, {
+            topic: req.query.topic,
+            limit: req.query.limit,
+            offset: req.query.offset,
+        });
+        return res.json({ rumors });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/known-rumors');
+    }
+});
+
+// Tier 3: Director Authority
+
+// 11. POST /simulations/:simLwsId/social-interventions
+router.post('/simulations/:simLwsId/social-interventions', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureMutableSimulation(db, req.params.simLwsId);
+
+        const body = req.body || {};
+        if (!body.social_state && !body.relationship && !body.faction_membership && !body.development_record) {
+            throw new LwsValidationError('Social intervention requires social_state, relationship, faction_membership, or development_record payload', ['social_state']);
+        }
+
+        const socialState = body.social_state || {
+            relationship: body.relationship,
+            faction_membership: body.faction_membership,
+            development_record: body.development_record,
+        };
+
+        const event = commitEvent(req.params.simLwsId, {
+            event_type: EVENT_TYPES.DIRECTOR_MODIFY_STATE,
+            actor_character_id: body.actor_character_id || null,
+            target_character_id: body.target_character_id || null,
+            fictional_time: sim.current_fictional_time,
+            payload: {
+                target: 'social_state',
+                social_state: socialState,
+                ...socialState,
+                rationale: body.rationale || 'Director social intervention',
+            },
+            provenance: 'director',
+        }, { isDedicatedRoute: true, isAdmin: true });
+
+        return res.status(201).json({
+            event,
+            status: 'committed',
+        });
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/social-interventions');
     }
 });
 

@@ -98,8 +98,18 @@ export function getProposalTarget(proposal) {
         case 'UPDATE_CHARACTER_ACTIVITY':
         case 'UPDATE_PHYSICAL_CONDITION':
         case 'UPDATE_RUNTIME_STATE':
-        default:
+        default: {
+            if (proposal.target_character_id) {
+                return { type: 'character', id: String(proposal.target_character_id) };
+            }
+            if (proposal.location_id) {
+                return { type: 'location', id: String(proposal.location_id) };
+            }
+            if (proposal.target_entity_id) {
+                return { type: proposal.target_entity_type || 'object', id: String(proposal.target_entity_id) };
+            }
             return { type: 'none', id: null };
+        }
     }
 }
 

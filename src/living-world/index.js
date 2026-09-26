@@ -109,5 +109,11 @@ export * from './cognition/goals.js';
 export * from './cognition/intentions.js';
 export * from './cognition/deliberation.js';
 export * from './cognition/arbitration.js';
+export * from './social/common.js';
+export * from './social/relationships.js';
+export * from './social/evidence.js';
+export * from './social/rumors.js';
+export * from './social/factions.js';
+export * from './social/development.js';
 
 

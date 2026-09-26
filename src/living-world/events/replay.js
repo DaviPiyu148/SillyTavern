@@ -6,6 +6,7 @@ import { listEvents } from './events.js';
 import { NEED_NAMES } from '../cognition/needs.js';
 import { VALUE_DIMENSIONS } from '../cognition/values.js';
 import { normalizeEmotionInput } from '../cognition/emotions.js';
+import { calculateFamiliarityDecay, clamp } from '../social/common.js';
 
 /**
  * Pure, deterministic in-memory simulation reducer.
@@ -18,10 +19,27 @@ import { normalizeEmotionInput } from '../cognition/emotions.js';
  */
 export function simulationReducer(state, event) {
     const payload = event.payload ?? {};
-    const simLwsId = event.simulation_id || state.simulation.lws_id;
-    if (simLwsId && !state.simulation.lws_id) {
+    const simLwsId = event.simulation_id || state.simulation?.lws_id;
+    if (state.simulation && simLwsId && !state.simulation.lws_id) {
         state.simulation.lws_id = simLwsId;
     }
+
+    state.characters = state.characters || {};
+    state.scheduled_events = state.scheduled_events || {};
+    state.knowledge = state.knowledge || {};
+    state.memories = state.memories || {};
+    state.beliefs = state.beliefs || {};
+    state.cameras = state.cameras || {};
+    state.needs = state.needs || {};
+    state.goals = state.goals || {};
+    state.intentions = state.intentions || {};
+    state.values = state.values || {};
+    state.emotions = state.emotions || {};
+    state.relationships = state.relationships || {};
+    state.relationshipEvidence = state.relationshipEvidence || [];
+    state.socialInformation = state.socialInformation || {};
+    state.factionMemberships = state.factionMemberships || {};
+    state.developmentRecords = state.developmentRecords || [];
 
     // Phase 7 Option B: Fold payload.intention on any event
     if (payload.intention && event.actor_character_id) {
@@ -139,6 +157,23 @@ export function simulationReducer(state, event) {
 
             state.goals[charLwsId] = state.goals[charLwsId] || {};
             state.intentions[charLwsId] = state.intentions[charLwsId] || {};
+
+            if (Array.isArray(payload.authored_snapshot?.factions)) {
+                for (const f of payload.authored_snapshot.factions) {
+                    const fLwsId = f.faction_lws_id || f.lws_id || f.faction_id;
+                    const memLwsId = generateDeterministicUuid('faction_membership', simLwsId, charLwsId, fLwsId);
+                    state.factionMemberships[`${charLwsId}:${fLwsId}`] = {
+                        lws_id: memLwsId,
+                        simulation_character_lws_id: charLwsId,
+                        faction_lws_id: fLwsId,
+                        rank_role: f.role || 'member',
+                        standing: 0,
+                        loyalty_score: 50,
+                        membership_status: 'active',
+                        joined_fictional_time: event.fictional_time,
+                    };
+                }
+            }
             break;
         }
 
@@ -282,6 +317,132 @@ export function simulationReducer(state, event) {
                     }
                 }
             }
+
+            if (payload.social || payload.social_state) {
+                const soc = payload.social || payload.social_state;
+                if (soc.relationship_update && actorId) {
+                    const r = soc.relationship_update;
+                    const tgtId = r.target_character_id || r.target_id || r.target_character_lws_id;
+                    if (tgtId) {
+                        const relKey = `${actorId}:${tgtId}`;
+                        const existingRel = state.relationships[relKey] || {
+                            lws_id: generateDeterministicUuid('relationship', simLwsId, actorId, tgtId),
+                            source_character_lws_id: actorId,
+                            target_character_lws_id: tgtId,
+                            trust: 0,
+                            affection: 0,
+                            familiarity: 0,
+                            respect: 0,
+                            loyalty: 0,
+                            last_interaction_fictional_time: null,
+                        };
+                        const d = r.delta || r;
+                        const prevTrust = existingRel.trust;
+                        const prevAff = existingRel.affection;
+                        const prevFam = existingRel.familiarity;
+                        const prevResp = existingRel.respect;
+                        const prevLoy = existingRel.loyalty;
+
+                        existingRel.trust = clamp(existingRel.trust + (d.delta_trust ?? d.trust ?? 0), -100, 100);
+                        existingRel.affection = clamp(existingRel.affection + (d.delta_affection ?? d.affection ?? 0), -100, 100);
+                        existingRel.familiarity = clamp(existingRel.familiarity + (d.delta_familiarity ?? d.familiarity ?? 0), 0, 100);
+                        existingRel.respect = clamp(existingRel.respect + (d.delta_respect ?? d.respect ?? 0), -100, 100);
+                        existingRel.loyalty = clamp(existingRel.loyalty + (d.delta_loyalty ?? d.loyalty ?? 0), -100, 100);
+                        existingRel.last_interaction_fictional_time = event.fictional_time;
+                        state.relationships[relKey] = existingRel;
+
+                        const evLwsId = generateDeterministicUuid('rel_evidence', event.lws_id, actorId, tgtId, String(existingRel.familiarity - prevFam));
+                        state.relationshipEvidence.push({
+                            lws_id: evLwsId,
+                            relationship_lws_id: existingRel.lws_id,
+                            source_character_lws_id: actorId,
+                            target_character_lws_id: tgtId,
+                            causal_event_lws_id: event.lws_id,
+                            fictional_time: event.fictional_time,
+                            delta_trust: existingRel.trust - prevTrust,
+                            delta_affection: existingRel.affection - prevAff,
+                            delta_familiarity: existingRel.familiarity - prevFam,
+                            delta_respect: existingRel.respect - prevResp,
+                            delta_loyalty: existingRel.loyalty - prevLoy,
+                            interaction_type: r.interaction_type || 'update',
+                            narrative_rationale: r.narrative_rationale || '',
+                        });
+                    }
+                }
+                if (soc.rumor_update) {
+                    const ru = soc.rumor_update;
+                    const infoLwsId = generateDeterministicUuid('social_info', simLwsId, ru.root_social_information_id || ru.subject_key, ru.transmitter_character_id || 'orig', ru.recipient_character_id || 'all', event.lws_id);
+                    state.socialInformation[infoLwsId] = {
+                        lws_id: infoLwsId,
+                        parent_social_information_lws_id: ru.parent_social_information_id || null,
+                        root_social_information_lws_id: (ru.transmission_depth === 0) ? infoLwsId : (ru.root_social_information_id || infoLwsId),
+                        originator_character_lws_id: ru.originator_character_id || null,
+                        transmitter_character_lws_id: ru.transmitter_character_id || null,
+                        recipient_character_lws_id: ru.recipient_character_id || null,
+                        causal_event_lws_id: event.lws_id,
+                        subject_key: ru.subject_key,
+                        topic: ru.topic,
+                        claim_statement: ru.claim_statement,
+                        veracity: ru.veracity || 'unknown',
+                        ground_truth_event_lws_id: ru.ground_truth_event_id || null,
+                        distortion_level: ru.distortion_level ?? 0,
+                        transmission_depth: ru.transmission_depth ?? 0,
+                        confidence_score: ru.confidence_score ?? 50,
+                        fictional_time: event.fictional_time,
+                    };
+                }
+                if (soc.faction_membership_update && actorId) {
+                    const f = soc.faction_membership_update;
+                    const memKey = `${actorId}:${f.faction_id}`;
+                    if (state.factionMemberships[memKey]) {
+                        const m = state.factionMemberships[memKey];
+                        if (f.rank_role !== undefined) m.rank_role = f.rank_role;
+                        if (f.standing !== undefined) m.standing = clamp(Math.round(f.standing), -100, 100);
+                        if (f.loyalty_score !== undefined) m.loyalty_score = clamp(Math.round(f.loyalty_score), -100, 100);
+                        if (f.membership_status !== undefined) m.membership_status = f.membership_status;
+                        if (f.delta_standing !== undefined) m.standing = clamp(m.standing + Math.round(f.delta_standing), -100, 100);
+                        if (f.delta_loyalty !== undefined) m.loyalty_score = clamp(m.loyalty_score + Math.round(f.delta_loyalty), -100, 100);
+                    }
+                }
+                if (soc.development_record && actorId) {
+                    const d = soc.development_record;
+                    const devLwsId = generateDeterministicUuid('dev_record', simLwsId, actorId, d.dimension_key, Array.isArray(d.causal_event_ids) ? d.causal_event_ids[0] : event.fictional_time);
+                    state.developmentRecords.push({
+                        lws_id: devLwsId,
+                        simulation_character_lws_id: actorId,
+                        dimension_category: d.dimension_category,
+                        dimension_key: d.dimension_key,
+                        previous_value: d.previous_value ?? 0,
+                        new_value: d.new_value ?? 0,
+                        delta: d.delta !== undefined ? d.delta : ((d.new_value ?? 0) - (d.previous_value ?? 0)),
+                        trigger_category: d.trigger_category,
+                        causal_event_ids: Array.isArray(d.causal_event_ids) ? d.causal_event_ids : (typeof d.causal_event_ids === 'string' ? safeJsonParse(d.causal_event_ids, []) : []),
+                        stability: d.stability ?? 50,
+                        fictional_time: event.fictional_time,
+                    });
+
+                    // Project into in-memory state
+                    if (d.dimension_category === 'value_shift') {
+                        state.values[actorId] = state.values[actorId] || {};
+                        state.values[actorId][d.dimension_key] = {
+                            lws_id: generateDeterministicUuid('value', simLwsId, actorId, d.dimension_key),
+                            dimension: d.dimension_key,
+                            strength: Math.round(d.new_value),
+                        };
+                    } else if (d.dimension_category === 'baseline_need_shift') {
+                        state.needs[actorId] = state.needs[actorId] || {};
+                        if (state.needs[actorId][d.dimension_key]) {
+                            state.needs[actorId][d.dimension_key].decay_rate = Math.round(d.new_value);
+                        }
+                    } else if (d.dimension_category === 'disposition_shift' || d.dimension_category === 'habit_shift') {
+                        if (state.characters[actorId]) {
+                            const sec = d.dimension_category === 'disposition_shift' ? 'dispositions' : 'habits';
+                            state.characters[actorId].runtime_state[sec] = state.characters[actorId].runtime_state[sec] || {};
+                            state.characters[actorId].runtime_state[sec][d.dimension_key] = d.new_value;
+                        }
+                    }
+                }
+            }
             break;
         }
 
@@ -376,6 +537,160 @@ export function simulationReducer(state, event) {
                                 deleted_at: null,
                             };
                         }
+                    }
+                }
+            }
+
+            // 4. Directional Relationships (Phase 8)
+            if (actorId && targetId && payload.relationship_delta) {
+                const d = payload.relationship_delta;
+                const relKey = `${actorId}:${targetId}`;
+                const existingRel = state.relationships[relKey] || {
+                    lws_id: generateDeterministicUuid('relationship', simLwsId, actorId, targetId),
+                    source_character_lws_id: actorId,
+                    target_character_lws_id: targetId,
+                    trust: 0,
+                    affection: 0,
+                    familiarity: 0,
+                    respect: 0,
+                    loyalty: 0,
+                    last_interaction_fictional_time: null,
+                };
+                const prevTrust = existingRel.trust;
+                const prevAff = existingRel.affection;
+                const prevFam = existingRel.familiarity;
+                const prevResp = existingRel.respect;
+                const prevLoy = existingRel.loyalty;
+
+                existingRel.trust = clamp(existingRel.trust + (d.delta_trust ?? d.trust ?? 0), -100, 100);
+                existingRel.affection = clamp(existingRel.affection + (d.delta_affection ?? d.affection ?? 0), -100, 100);
+                existingRel.familiarity = clamp(existingRel.familiarity + (d.delta_familiarity ?? d.familiarity ?? 0), 0, 100);
+                existingRel.respect = clamp(existingRel.respect + (d.delta_respect ?? d.respect ?? 0), -100, 100);
+                existingRel.loyalty = clamp(existingRel.loyalty + (d.delta_loyalty ?? d.loyalty ?? 0), -100, 100);
+                existingRel.last_interaction_fictional_time = event.fictional_time;
+                state.relationships[relKey] = existingRel;
+
+                const evLwsId = generateDeterministicUuid('rel_evidence', event.lws_id, actorId, targetId, String(existingRel.familiarity - prevFam));
+                state.relationshipEvidence.push({
+                    lws_id: evLwsId,
+                    relationship_lws_id: existingRel.lws_id,
+                    source_character_lws_id: actorId,
+                    target_character_lws_id: targetId,
+                    causal_event_lws_id: event.lws_id,
+                    fictional_time: event.fictional_time,
+                    delta_trust: existingRel.trust - prevTrust,
+                    delta_affection: existingRel.affection - prevAff,
+                    delta_familiarity: existingRel.familiarity - prevFam,
+                    delta_respect: existingRel.respect - prevResp,
+                    delta_loyalty: existingRel.loyalty - prevLoy,
+                    interaction_type: 'communication',
+                    narrative_rationale: d.narrative_rationale || d.rationale || 'Conversation interaction',
+                });
+
+                if (d.reverse) {
+                    const revKey = `${targetId}:${actorId}`;
+                    const existingRev = state.relationships[revKey] || {
+                        lws_id: generateDeterministicUuid('relationship', simLwsId, targetId, actorId),
+                        source_character_lws_id: targetId,
+                        target_character_lws_id: actorId,
+                        trust: 0,
+                        affection: 0,
+                        familiarity: 0,
+                        respect: 0,
+                        loyalty: 0,
+                        last_interaction_fictional_time: null,
+                    };
+                    const rPrevTrust = existingRev.trust;
+                    const rPrevAff = existingRev.affection;
+                    const rPrevFam = existingRev.familiarity;
+                    const rPrevResp = existingRev.respect;
+                    const rPrevLoy = existingRev.loyalty;
+
+                    existingRev.trust = clamp(existingRev.trust + (d.reverse.delta_trust ?? d.reverse.trust ?? 0), -100, 100);
+                    existingRev.affection = clamp(existingRev.affection + (d.reverse.delta_affection ?? d.reverse.affection ?? 0), -100, 100);
+                    existingRev.familiarity = clamp(existingRev.familiarity + (d.reverse.delta_familiarity ?? d.reverse.familiarity ?? 0), 0, 100);
+                    existingRev.respect = clamp(existingRev.respect + (d.reverse.delta_respect ?? d.reverse.respect ?? 0), -100, 100);
+                    existingRev.loyalty = clamp(existingRev.loyalty + (d.reverse.delta_loyalty ?? d.reverse.loyalty ?? 0), -100, 100);
+                    existingRev.last_interaction_fictional_time = event.fictional_time;
+                    state.relationships[revKey] = existingRev;
+
+                    const revEvLwsId = generateDeterministicUuid('rel_evidence', event.lws_id, targetId, actorId, String(existingRev.familiarity - rPrevFam));
+                    state.relationshipEvidence.push({
+                        lws_id: revEvLwsId,
+                        relationship_lws_id: existingRev.lws_id,
+                        source_character_lws_id: targetId,
+                        target_character_lws_id: actorId,
+                        causal_event_lws_id: event.lws_id,
+                        fictional_time: event.fictional_time,
+                        delta_trust: existingRev.trust - rPrevTrust,
+                        delta_affection: existingRev.affection - rPrevAff,
+                        delta_familiarity: existingRev.familiarity - rPrevFam,
+                        delta_respect: existingRev.respect - rPrevResp,
+                        delta_loyalty: existingRev.loyalty - rPrevLoy,
+                        interaction_type: 'communication',
+                        narrative_rationale: d.reverse.narrative_rationale || d.reverse.rationale || 'Conversation interaction',
+                    });
+                }
+            }
+
+            // 5. Rumors & Social Information (Phase 8)
+            if (payload.rumor || payload.social_information) {
+                const r = payload.rumor || payload.social_information;
+                const depth = Number(r.transmission_depth ?? 0);
+                const isRoot = depth === 0;
+                const transId = isRoot ? null : (r.transmitter_character_id || r.transmitter_character_lws_id || actorId || null);
+                const recipId = isRoot ? null : (r.recipient_character_id || r.recipient_character_lws_id || targetId || null);
+                const infoLwsId = r.lws_id || generateDeterministicUuid(
+                    'social_info',
+                    simLwsId,
+                    r.root_social_information_id || r.root_social_information_lws_id || r.subject_key,
+                    transId || 'orig',
+                    recipId || 'all',
+                    event.lws_id,
+                );
+                const parentLwsId = r.parent_social_information_id || r.parent_social_information_lws_id || null;
+                const rootLwsId = isRoot ? infoLwsId : (r.root_social_information_id || r.root_social_information_lws_id || infoLwsId);
+
+                state.socialInformation[infoLwsId] = {
+                    lws_id: infoLwsId,
+                    parent_social_information_lws_id: parentLwsId,
+                    root_social_information_lws_id: rootLwsId,
+                    originator_character_lws_id: r.originator_character_id || r.originator_character_lws_id || (isRoot ? actorId : null),
+                    transmitter_character_lws_id: transId,
+                    recipient_character_lws_id: recipId,
+                    causal_event_lws_id: event.lws_id,
+                    subject_key: r.subject_key,
+                    topic: r.topic,
+                    claim_statement: r.claim_statement,
+                    veracity: r.veracity || 'unknown',
+                    ground_truth_event_lws_id: r.ground_truth_event_id || r.ground_truth_event_lws_id || null,
+                    distortion_level: r.distortion_level ?? 0,
+                    transmission_depth: depth,
+                    confidence_score: r.confidence_score ?? 50,
+                    fictional_time: event.fictional_time,
+                };
+
+                if (targetId && actorId) {
+                    const rel = state.relationships[`${targetId}:${actorId}`];
+                    const trust = rel?.trust ?? 0;
+                    if (trust > -30) {
+                        const cRumor = r.confidence_score ?? 50;
+                        const scaledConfidence = clamp(Math.round(cRumor * ((trust + 100) / 200)), 1, 100);
+                        const beliefType = scaledConfidence >= 70 ? 'belief' : 'suspicion';
+                        const sourceBasis = 'hearsay';
+
+                        const bLwsId = generateDeterministicUuid('belief', targetId, r.subject_key);
+                        state.beliefs[targetId] = state.beliefs[targetId] || {};
+                        state.beliefs[targetId][r.subject_key] = {
+                            lws_id: bLwsId,
+                            subject_key: r.subject_key,
+                            statement: r.claim_statement,
+                            belief_type: beliefType,
+                            confidence: scaledConfidence,
+                            source_basis: sourceBasis,
+                            causal_event_id: event.lws_id,
+                            deleted_at: null,
+                        };
                     }
                 }
             }
@@ -681,9 +996,129 @@ export function simulationReducer(state, event) {
                             };
                         }
                     }
+                } else if (payload.target === 'character_relationship') {
+                    const srcId = payload.source_character_id || payload.source_id;
+                    const tgtId = payload.target_character_id || payload.target_id;
+                    if (srcId && tgtId) {
+                        const relKey = `${srcId}:${tgtId}`;
+                        const existingRel = state.relationships[relKey] || {
+                            lws_id: generateDeterministicUuid('relationship', simLwsId, srcId, tgtId),
+                            source_character_lws_id: srcId,
+                            target_character_lws_id: tgtId,
+                            trust: 0,
+                            affection: 0,
+                            familiarity: 0,
+                            respect: 0,
+                            loyalty: 0,
+                            last_interaction_fictional_time: null,
+                        };
+                        const d = payload.delta || payload;
+                        const prevTrust = existingRel.trust;
+                        const prevAff = existingRel.affection;
+                        const prevFam = existingRel.familiarity;
+                        const prevResp = existingRel.respect;
+                        const prevLoy = existingRel.loyalty;
+
+                        existingRel.trust = clamp(existingRel.trust + (d.delta_trust ?? d.trust ?? 0), -100, 100);
+                        existingRel.affection = clamp(existingRel.affection + (d.delta_affection ?? d.affection ?? 0), -100, 100);
+                        existingRel.familiarity = clamp(existingRel.familiarity + (d.delta_familiarity ?? d.familiarity ?? 0), 0, 100);
+                        existingRel.respect = clamp(existingRel.respect + (d.delta_respect ?? d.respect ?? 0), -100, 100);
+                        existingRel.loyalty = clamp(existingRel.loyalty + (d.delta_loyalty ?? d.loyalty ?? 0), -100, 100);
+                        existingRel.last_interaction_fictional_time = event.fictional_time;
+                        state.relationships[relKey] = existingRel;
+
+                        const evLwsId = generateDeterministicUuid('rel_evidence', event.lws_id, srcId, tgtId, String(existingRel.familiarity - prevFam));
+                        state.relationshipEvidence.push({
+                            lws_id: evLwsId,
+                            relationship_lws_id: existingRel.lws_id,
+                            source_character_lws_id: srcId,
+                            target_character_lws_id: tgtId,
+                            causal_event_lws_id: event.lws_id,
+                            fictional_time: event.fictional_time,
+                            delta_trust: existingRel.trust - prevTrust,
+                            delta_affection: existingRel.affection - prevAff,
+                            delta_familiarity: existingRel.familiarity - prevFam,
+                            delta_respect: existingRel.respect - prevResp,
+                            delta_loyalty: existingRel.loyalty - prevLoy,
+                            interaction_type: payload.interaction_type || 'director_override',
+                            narrative_rationale: payload.narrative_rationale || 'Director relationship modification',
+                        });
+                    }
+                } else if (payload.target === 'character_development' || payload.development_record || payload.social_state?.development_record) {
+                    const devData = payload.development_record || payload.social_state?.development_record || payload;
+                    const charId = targetCharId || event.actor_character_id;
+                    if (charId) {
+                        const devLwsId = generateDeterministicUuid('dev_record', simLwsId, charId, devData.dimension_key, event.lws_id);
+                        state.developmentRecords.push({
+                            lws_id: devLwsId,
+                            simulation_character_lws_id: charId,
+                            dimension_category: devData.dimension_category,
+                            dimension_key: devData.dimension_key,
+                            previous_value: devData.previous_value ?? 0,
+                            new_value: devData.new_value ?? 0,
+                            delta: devData.delta !== undefined ? devData.delta : ((devData.new_value ?? 0) - (devData.previous_value ?? 0)),
+                            trigger_category: devData.trigger_category || 'director_override',
+                            causal_event_ids: devData.causal_event_ids || [event.lws_id],
+                            stability: devData.stability ?? 50,
+                            fictional_time: event.fictional_time,
+                        });
+
+                        if (devData.dimension_category === 'value_shift') {
+                            state.values[charId] = state.values[charId] || {};
+                            state.values[charId][devData.dimension_key] = {
+                                lws_id: generateDeterministicUuid('value', simLwsId, charId, devData.dimension_key),
+                                dimension: devData.dimension_key,
+                                strength: Math.round(devData.new_value),
+                            };
+                        } else if (devData.dimension_category === 'baseline_need_shift') {
+                            state.needs[charId] = state.needs[charId] || {};
+                            if (state.needs[charId][devData.dimension_key]) {
+                                state.needs[charId][devData.dimension_key].decay_rate = Math.round(devData.new_value);
+                            }
+                        } else if (devData.dimension_category === 'disposition_shift' || devData.dimension_category === 'habit_shift') {
+                            if (state.characters[charId]) {
+                                const sec = devData.dimension_category === 'disposition_shift' ? 'dispositions' : 'habits';
+                                state.characters[charId].runtime_state[sec] = state.characters[charId].runtime_state[sec] || {};
+                                state.characters[charId].runtime_state[sec][devData.dimension_key] = devData.new_value;
+                            }
+                        }
+                    }
+                } else if (payload.target === 'faction_membership') {
+                    const charId = targetCharId || event.actor_character_id;
+                    if (charId && payload.faction_id) {
+                        const memKey = `${charId}:${payload.faction_id}`;
+                        if (state.factionMemberships[memKey]) {
+                            const m = state.factionMemberships[memKey];
+                            if (payload.rank_role !== undefined) m.rank_role = payload.rank_role;
+                            if (payload.standing !== undefined) m.standing = clamp(Math.round(payload.standing), -100, 100);
+                            if (payload.loyalty_score !== undefined) m.loyalty_score = clamp(Math.round(payload.loyalty_score), -100, 100);
+                            if (payload.membership_status !== undefined) m.membership_status = payload.membership_status;
+                        }
+                    }
+                } else if (payload.target === 'social_information' || payload.rumor) {
+                    const r = payload.rumor || payload;
+                    const infoLwsId = generateDeterministicUuid('social_info', simLwsId, r.root_social_information_id || r.subject_key, r.transmitter_character_id || 'orig', r.recipient_character_id || 'all', event.lws_id);
+                    state.socialInformation[infoLwsId] = {
+                        lws_id: infoLwsId,
+                        parent_social_information_lws_id: r.parent_social_information_id || null,
+                        root_social_information_lws_id: (r.transmission_depth === 0) ? infoLwsId : (r.root_social_information_id || infoLwsId),
+                        originator_character_lws_id: r.originator_character_id || null,
+                        transmitter_character_lws_id: r.transmitter_character_id || null,
+                        recipient_character_lws_id: r.recipient_character_id || null,
+                        causal_event_lws_id: event.lws_id,
+                        subject_key: r.subject_key,
+                        topic: r.topic,
+                        claim_statement: r.claim_statement,
+                        veracity: r.veracity || 'unknown',
+                        ground_truth_event_lws_id: r.ground_truth_event_id || null,
+                        distortion_level: r.distortion_level ?? 0,
+                        transmission_depth: r.transmission_depth ?? 0,
+                        confidence_score: r.confidence_score ?? 50,
+                        fictional_time: event.fictional_time,
+                    };
                 }
 
-                if (state.characters[event.actor_character_id] && payload.target !== 'camera' && payload.target !== 'simulation' && payload.target !== 'character_knowledge' && payload.target !== 'character_belief' && payload.target !== 'character_memory' && payload.target !== 'character_needs' && payload.target !== 'character_value' && payload.target !== 'character_emotion' && payload.target !== 'character_goal' && !payload.beliefs && !payload.knowledge && !payload.facts && !payload.memories) {
+                if (state.characters[event.actor_character_id] && payload.target !== 'camera' && payload.target !== 'simulation' && payload.target !== 'character_knowledge' && payload.target !== 'character_belief' && payload.target !== 'character_memory' && payload.target !== 'character_needs' && payload.target !== 'character_value' && payload.target !== 'character_emotion' && payload.target !== 'character_goal' && payload.target !== 'character_relationship' && payload.target !== 'character_development' && payload.target !== 'faction_membership' && payload.target !== 'social_information' && !payload.beliefs && !payload.knowledge && !payload.facts && !payload.memories) {
                     const char = state.characters[event.actor_character_id];
                     if (event.location_id !== null && event.location_id !== undefined) char.current_location_id = event.location_id;
                     if (payload.activity !== undefined) char.activity = payload.activity;
@@ -696,35 +1131,152 @@ export function simulationReducer(state, event) {
             break;
         }
 
-        case EVENT_TYPES.EMOTE: {
+        case EVENT_TYPES.TRANSFER_ITEM: {
             const actorId = event.actor_character_id;
-            if (actorId && (payload.emotion || payload.dominant_emotion)) {
-                const normalized = normalizeEmotionInput(payload.emotion || payload);
-                state.emotions[actorId] = {
-                    ...(state.emotions[actorId] || {}),
-                    ...normalized,
-                    last_updated_time: event.fictional_time,
-                    updated_at: event.created_at,
+            const targetId = event.target_character_id;
+            if (actorId && targetId) {
+                const impact = payload.relationship_impact || {
+                    delta_affection: payload.delta_affection ?? 15,
+                    delta_trust: payload.delta_trust ?? 10,
+                    delta_loyalty: payload.delta_loyalty ?? 5,
+                    delta_familiarity: payload.delta_familiarity ?? 10,
                 };
+                const relKey = `${targetId}:${actorId}`;
+                const existingRel = state.relationships[relKey] || {
+                    lws_id: generateDeterministicUuid('relationship', simLwsId, targetId, actorId),
+                    source_character_lws_id: targetId,
+                    target_character_lws_id: actorId,
+                    trust: 0,
+                    affection: 0,
+                    familiarity: 0,
+                    respect: 0,
+                    loyalty: 0,
+                    last_interaction_fictional_time: null,
+                };
+                const prevTrust = existingRel.trust;
+                const prevAff = existingRel.affection;
+                const prevFam = existingRel.familiarity;
+                const prevResp = existingRel.respect;
+                const prevLoy = existingRel.loyalty;
+
+                existingRel.trust = clamp(existingRel.trust + (impact.delta_trust ?? 10), -100, 100);
+                existingRel.affection = clamp(existingRel.affection + (impact.delta_affection ?? 15), -100, 100);
+                existingRel.loyalty = clamp(existingRel.loyalty + (impact.delta_loyalty ?? 5), -100, 100);
+                existingRel.familiarity = clamp(existingRel.familiarity + (impact.delta_familiarity ?? 10), 0, 100);
+                existingRel.last_interaction_fictional_time = event.fictional_time;
+                state.relationships[relKey] = existingRel;
+
+                const evLwsId = generateDeterministicUuid('rel_evidence', event.lws_id, targetId, actorId, String(existingRel.familiarity - prevFam));
+                state.relationshipEvidence.push({
+                    lws_id: evLwsId,
+                    relationship_lws_id: existingRel.lws_id,
+                    source_character_lws_id: targetId,
+                    target_character_lws_id: actorId,
+                    causal_event_lws_id: event.lws_id,
+                    fictional_time: event.fictional_time,
+                    delta_trust: existingRel.trust - prevTrust,
+                    delta_affection: existingRel.affection - prevAff,
+                    delta_familiarity: existingRel.familiarity - prevFam,
+                    delta_respect: existingRel.respect - prevResp,
+                    delta_loyalty: existingRel.loyalty - prevLoy,
+                    interaction_type: 'gift',
+                    narrative_rationale: payload.narrative_rationale || 'Item transfer / gift',
+                });
             }
             break;
         }
 
-        case EVENT_TYPES.REST:
-            if (state.characters[event.actor_character_id]) {
-                state.characters[event.actor_character_id].activity = 'resting';
+        case EVENT_TYPES.COMBAT_ACTION: {
+            const actorId = event.actor_character_id;
+            const targetId = event.target_character_id;
+            if (actorId && targetId) {
+                const impact = payload.relationship_impact || {
+                    delta_affection: payload.delta_affection ?? -40,
+                    delta_trust: payload.delta_trust ?? -50,
+                    delta_respect: payload.delta_respect ?? 0,
+                    delta_loyalty: payload.delta_loyalty ?? -30,
+                };
+                const relKey = `${targetId}:${actorId}`;
+                const existingRel = state.relationships[relKey] || {
+                    lws_id: generateDeterministicUuid('relationship', simLwsId, targetId, actorId),
+                    source_character_lws_id: targetId,
+                    target_character_lws_id: actorId,
+                    trust: 0,
+                    affection: 0,
+                    familiarity: 0,
+                    respect: 0,
+                    loyalty: 0,
+                    last_interaction_fictional_time: null,
+                };
+                const prevTrust = existingRel.trust;
+                const prevAff = existingRel.affection;
+                const prevFam = existingRel.familiarity;
+                const prevResp = existingRel.respect;
+                const prevLoy = existingRel.loyalty;
+
+                existingRel.trust = clamp(existingRel.trust + (impact.delta_trust ?? -50), -100, 100);
+                existingRel.affection = clamp(existingRel.affection + (impact.delta_affection ?? -40), -100, 100);
+                existingRel.respect = clamp(existingRel.respect + (impact.delta_respect ?? 0), -100, 100);
+                existingRel.loyalty = clamp(existingRel.loyalty + (impact.delta_loyalty ?? -30), -100, 100);
+                existingRel.last_interaction_fictional_time = event.fictional_time;
+                state.relationships[relKey] = existingRel;
+
+                const evLwsId = generateDeterministicUuid('rel_evidence', event.lws_id, targetId, actorId, '0');
+                state.relationshipEvidence.push({
+                    lws_id: evLwsId,
+                    relationship_lws_id: existingRel.lws_id,
+                    source_character_lws_id: targetId,
+                    target_character_lws_id: actorId,
+                    causal_event_lws_id: event.lws_id,
+                    fictional_time: event.fictional_time,
+                    delta_trust: existingRel.trust - prevTrust,
+                    delta_affection: existingRel.affection - prevAff,
+                    delta_familiarity: existingRel.familiarity - prevFam,
+                    delta_respect: existingRel.respect - prevResp,
+                    delta_loyalty: existingRel.loyalty - prevLoy,
+                    interaction_type: 'combat',
+                    narrative_rationale: payload.narrative_rationale || 'Hostile confrontation in combat',
+                });
             }
             break;
+        }
 
-        case EVENT_TYPES.WORK:
-            if (state.characters[event.actor_character_id]) {
-                state.characters[event.actor_character_id].activity = payload.activity || 'working';
-            }
-            break;
-
-        case EVENT_TYPES.TIME_ADVANCE:
+        case EVENT_TYPES.TIME_ADVANCE: {
             state.simulation.current_fictional_time = event.fictional_time;
+
+            // Evaluate familiarity decay for relationships with last interaction > 7 days
+            const currMs = new Date(event.fictional_time).getTime();
+            for (const rel of Object.values(state.relationships)) {
+                if (rel.last_interaction_fictional_time && rel.familiarity > 0) {
+                    const lastMs = new Date(rel.last_interaction_fictional_time).getTime();
+                    const deltaSeconds = Math.floor((currMs - lastMs) / 1000);
+                    if (deltaSeconds > 604800) {
+                        const nextFam = calculateFamiliarityDecay(rel.familiarity, deltaSeconds);
+                        const deltaFam = nextFam - rel.familiarity;
+                        if (deltaFam <= -1) {
+                            rel.familiarity = nextFam;
+                            const evLwsId = generateDeterministicUuid('rel_evidence', event.lws_id, rel.source_character_lws_id, rel.target_character_lws_id, String(deltaFam));
+                            state.relationshipEvidence.push({
+                                lws_id: evLwsId,
+                                relationship_lws_id: rel.lws_id,
+                                source_character_lws_id: rel.source_character_lws_id,
+                                target_character_lws_id: rel.target_character_lws_id,
+                                causal_event_lws_id: event.lws_id,
+                                fictional_time: event.fictional_time,
+                                delta_trust: 0,
+                                delta_affection: 0,
+                                delta_familiarity: deltaFam,
+                                delta_respect: 0,
+                                delta_loyalty: 0,
+                                interaction_type: 'temporal_decay',
+                                narrative_rationale: 'Familiarity decayed due to elapsed fictional time without interaction (> 7 days)',
+                            });
+                        }
+                    }
+                }
+            }
             break;
+        }
 
         case EVENT_TYPES.SCHEDULE_WORLD_EVENT:
             state.scheduled_events[payload.scheduled_event_id] = {
@@ -782,6 +1334,36 @@ export function simulationReducer(state, event) {
             }
             break;
 
+        case EVENT_TYPES.REST:
+            if (state.characters[event.actor_character_id]) {
+                state.characters[event.actor_character_id].activity = 'resting';
+            }
+            break;
+
+        case EVENT_TYPES.WORK:
+            if (state.characters[event.actor_character_id]) {
+                state.characters[event.actor_character_id].activity = payload.activity || 'working';
+            }
+            break;
+
+        case EVENT_TYPES.TRAVEL:
+            if (state.characters[event.actor_character_id]) {
+                state.characters[event.actor_character_id].activity = 'traveling';
+            }
+            break;
+
+        case EVENT_TYPES.EAT:
+            if (state.characters[event.actor_character_id]) {
+                state.characters[event.actor_character_id].activity = 'eating';
+            }
+            break;
+
+        case EVENT_TYPES.SLEEP:
+            if (state.characters[event.actor_character_id]) {
+                state.characters[event.actor_character_id].activity = 'sleeping';
+            }
+            break;
+
         // Event-only facts do not mutate canonical character coordinates
         default:
             break;
@@ -817,6 +1399,11 @@ export function replaySimulation(events) {
         intentions: {},
         values: {},
         emotions: {},
+        relationships: {},
+        relationshipEvidence: [],
+        socialInformation: {},
+        factionMemberships: {},
+        developmentRecords: [],
     };
 
     return events.reduce(simulationReducer, initialState);
@@ -1158,6 +1745,148 @@ export function verifySimulationParity(simLwsId) {
         }
         if ((rg.deleted_at ? new Date(rg.deleted_at).toISOString() : null) !== (dg.deleted_at ? new Date(dg.deleted_at).toISOString() : null)) {
             throw new Error(`Goal ${dg.lws_id} deleted_at drift: replayed=${rg.deleted_at}, db=${dg.deleted_at}`);
+        }
+    }
+
+    // 12. Compare Relationships (Phase 8)
+    const dbRels = db.prepare(`
+        SELECT r.*, sc1.lws_id AS source_char_lws_id, sc2.lws_id AS target_char_lws_id
+        FROM lws_character_relationships r
+        JOIN lws_simulation_characters sc1 ON r.source_character_id = sc1.id
+        JOIN lws_simulation_characters sc2 ON r.target_character_id = sc2.id
+        WHERE r.simulation_id = ?
+    `).all(sim.id);
+
+    for (const dr of dbRels) {
+        const relKey = `${dr.source_char_lws_id}:${dr.target_char_lws_id}`;
+        const rr = replayed.relationships[relKey];
+        if (!rr) {
+            throw new Error(`Relationship ${relKey} missing in replayed state`);
+        }
+        if (rr.trust !== dr.trust) {
+            throw new Error(`Relationship ${relKey} trust drift: replayed=${rr.trust}, db=${dr.trust}`);
+        }
+        if (rr.affection !== dr.affection) {
+            throw new Error(`Relationship ${relKey} affection drift: replayed=${rr.affection}, db=${dr.affection}`);
+        }
+        if (rr.familiarity !== dr.familiarity) {
+            throw new Error(`Relationship ${relKey} familiarity drift: replayed=${rr.familiarity}, db=${dr.familiarity}`);
+        }
+        if (rr.respect !== dr.respect) {
+            throw new Error(`Relationship ${relKey} respect drift: replayed=${rr.respect}, db=${dr.respect}`);
+        }
+        if (rr.loyalty !== dr.loyalty) {
+            throw new Error(`Relationship ${relKey} loyalty drift: replayed=${rr.loyalty}, db=${dr.loyalty}`);
+        }
+        if ((rr.last_interaction_fictional_time || null) !== (dr.last_interaction_fictional_time || null)) {
+            throw new Error(`Relationship ${relKey} last_interaction_fictional_time drift: replayed=${rr.last_interaction_fictional_time}, db=${dr.last_interaction_fictional_time}`);
+        }
+    }
+
+    // 13. Compare Relationship Evidence (Phase 8)
+    const dbEvCount = db.prepare(`
+        SELECT COUNT(*) AS total FROM lws_relationship_evidence WHERE simulation_id = ?
+    `).get(sim.id).total;
+    if (dbEvCount !== replayed.relationshipEvidence.length) {
+        throw new Error(`Relationship evidence count drift: replayed=${replayed.relationshipEvidence.length}, db=${dbEvCount}`);
+    }
+
+    // 14. Compare Social Information / Rumors (Phase 8)
+    const dbSocialInfo = db.prepare(`
+        SELECT si.*,
+               rsi.lws_id AS root_lws_id,
+               psi.lws_id AS parent_lws_id,
+               sc_orig.lws_id AS orig_char_lws_id,
+               sc_trans.lws_id AS trans_char_lws_id,
+               sc_recip.lws_id AS recip_char_lws_id
+        FROM lws_social_information si
+        LEFT JOIN lws_social_information rsi ON si.root_social_information_id = rsi.id
+        LEFT JOIN lws_social_information psi ON si.parent_social_information_id = psi.id
+        LEFT JOIN lws_simulation_characters sc_orig ON si.originator_character_id = sc_orig.id
+        LEFT JOIN lws_simulation_characters sc_trans ON si.transmitter_character_id = sc_trans.id
+        LEFT JOIN lws_simulation_characters sc_recip ON si.recipient_character_id = sc_recip.id
+        WHERE si.simulation_id = ?
+    `).all(sim.id);
+
+    for (const dsi of dbSocialInfo) {
+        const rsi = replayed.socialInformation[dsi.lws_id];
+        if (!rsi) {
+            throw new Error(`Social information ${dsi.lws_id} missing in replayed state`);
+        }
+        if (rsi.transmission_depth !== dsi.transmission_depth) {
+            throw new Error(`Social information ${dsi.lws_id} depth drift: replayed=${rsi.transmission_depth}, db=${dsi.transmission_depth}`);
+        }
+        if (rsi.veracity !== dsi.veracity) {
+            throw new Error(`Social information ${dsi.lws_id} veracity drift: replayed=${rsi.veracity}, db=${dsi.veracity}`);
+        }
+        if (rsi.confidence_score !== dsi.confidence_score) {
+            throw new Error(`Social information ${dsi.lws_id} confidence drift: replayed=${rsi.confidence_score}, db=${dsi.confidence_score}`);
+        }
+        if (rsi.claim_statement !== dsi.claim_statement) {
+            throw new Error(`Social information ${dsi.lws_id} statement drift: replayed=${rsi.claim_statement}, db=${dsi.claim_statement}`);
+        }
+    }
+
+    // 15. Compare Faction Memberships (Phase 8)
+    const dbMemberships = db.prepare(`
+        SELECT fm.*, sc.lws_id AS char_lws_id, f.lws_id AS faction_lws_id
+        FROM lws_character_faction_memberships fm
+        JOIN lws_simulation_characters sc ON fm.simulation_character_id = sc.id
+        JOIN lws_factions f ON fm.faction_id = f.id
+        WHERE fm.simulation_id = ?
+    `).all(sim.id);
+
+    for (const dm of dbMemberships) {
+        const memKey = `${dm.char_lws_id}:${dm.faction_lws_id}`;
+        const rm = replayed.factionMemberships[memKey] || replayed.factionMemberships[`${dm.char_lws_id}:${dm.faction_id}`];
+        if (!rm) {
+            throw new Error(`Faction membership ${memKey} missing in replayed state`);
+        }
+        if (rm.rank_role !== dm.rank_role) {
+            throw new Error(`Faction membership ${memKey} rank_role drift: replayed=${rm.rank_role}, db=${dm.rank_role}`);
+        }
+        if (rm.standing !== dm.standing) {
+            throw new Error(`Faction membership ${memKey} standing drift: replayed=${rm.standing}, db=${dm.standing}`);
+        }
+        if (rm.loyalty_score !== dm.loyalty_score) {
+            throw new Error(`Faction membership ${memKey} loyalty drift: replayed=${rm.loyalty_score}, db=${dm.loyalty_score}`);
+        }
+        if (rm.membership_status !== dm.membership_status) {
+            throw new Error(`Faction membership ${memKey} status drift: replayed=${rm.membership_status}, db=${dm.membership_status}`);
+        }
+    }
+
+    // 16. Compare Character Development Records (Phase 8)
+    const dbDevRecords = db.prepare(`
+        SELECT dr.*, sc.lws_id AS char_lws_id
+        FROM lws_character_development_records dr
+        JOIN lws_simulation_characters sc ON dr.simulation_character_id = sc.id
+        WHERE dr.simulation_id = ?
+    `).all(sim.id);
+
+    if (dbDevRecords.length !== replayed.developmentRecords.length) {
+        throw new Error(`Development records count drift: replayed=${replayed.developmentRecords.length}, db=${dbDevRecords.length}`);
+    }
+
+    // 17. Compare Beliefs (Reconciled Phase 6/8)
+    const dbBeliefs = db.prepare(`
+        SELECT b.*, sc.lws_id AS char_lws_id
+        FROM lws_character_beliefs b
+        JOIN lws_simulation_characters sc ON b.simulation_character_id = sc.id
+        WHERE b.simulation_id = ?
+    `).all(sim.id);
+
+    for (const dbB of dbBeliefs) {
+        const charBeliefs = replayed.beliefs[dbB.char_lws_id] || {};
+        const rb = charBeliefs[dbB.subject_key];
+        if (!rb) {
+            throw new Error(`Character ${dbB.char_lws_id} belief ${dbB.subject_key} missing in replayed state`);
+        }
+        if (rb.statement !== dbB.statement) {
+            throw new Error(`Belief ${dbB.subject_key} statement drift: replayed=${rb.statement}, db=${dbB.statement}`);
+        }
+        if (rb.confidence !== dbB.confidence) {
+            throw new Error(`Belief ${dbB.subject_key} confidence drift: replayed=${rb.confidence}, db=${dbB.confidence}`);
         }
     }
 

@@ -224,8 +224,11 @@ export function validateProposalSchema(proposal) {
             if (!proposal.actor_character_id) {
                 throw new LwsValidationError('actor_character_id is required for UPDATE_RUNTIME_STATE', ['actor_character_id']);
             }
-            if ((!payload.patch || typeof payload.patch !== 'object' || Array.isArray(payload.patch)) && (!payload.cognition || typeof payload.cognition !== 'object' || Array.isArray(payload.cognition))) {
-                throw new LwsValidationError('payload.patch or payload.cognition must be an object', ['payload.patch']);
+            if ((!payload.patch || typeof payload.patch !== 'object' || Array.isArray(payload.patch)) &&
+                (!payload.cognition || typeof payload.cognition !== 'object' || Array.isArray(payload.cognition)) &&
+                (!payload.social || typeof payload.social !== 'object' || Array.isArray(payload.social)) &&
+                (!payload.social_state || typeof payload.social_state !== 'object' || Array.isArray(payload.social_state))) {
+                throw new LwsValidationError('payload.patch, payload.cognition, payload.social, or payload.social_state must be an object', ['payload.patch']);
             }
             break;
 

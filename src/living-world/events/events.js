@@ -9,6 +9,7 @@ import { evaluateEventPerceptions } from '../perception/spatial.js';
 import { initCharacterNeeds } from '../cognition/needs.js';
 import { initCharacterValues } from '../cognition/values.js';
 import { initCharacterEmotion } from '../cognition/emotions.js';
+import { initCharacterFactionMemberships } from '../social/factions.js';
 
 /**
  * Computes a deterministic SHA-256 fingerprint of an event proposal for idempotency validation.
@@ -135,6 +136,13 @@ export function internalCommitEvent(db, sim, proposal, callerContext = {}) {
         const simCharLwsId = generateUuid();
         const p = evaluated.payload;
 
+        const authoredFactions = db.prepare(`
+            SELECT cf.role, f.lws_id AS faction_lws_id, f.name AS faction_name
+            FROM lws_character_factions cf
+            JOIN lws_factions f ON cf.faction_id = f.id
+            WHERE cf.character_id = ? AND f.deleted_at IS NULL
+        `).all(authoredChar.id);
+
         const charSnapshot = {
             name: authoredChar.name,
             description: authoredChar.description,
@@ -146,6 +154,7 @@ export function internalCommitEvent(db, sim, proposal, callerContext = {}) {
             character_version: authoredChar.character_version,
             tags: safeJsonParse(authoredChar.tags, []),
             extensions: safeJsonParse(authoredChar.extensions, {}),
+            factions: authoredFactions,
         };
 
         const initialActivity = p.activity || 'idle';
@@ -181,6 +190,9 @@ export function internalCommitEvent(db, sim, proposal, callerContext = {}) {
         initCharacterNeeds(db, sim.id, newSimCharRow.id, sim.lws_id, simCharLwsId, evaluated.fictional_time, eventCreatedAt);
         initCharacterValues(db, sim.id, newSimCharRow.id, sim.lws_id, simCharLwsId, eventCreatedAt);
         initCharacterEmotion(db, sim.id, newSimCharRow.id, sim.lws_id, simCharLwsId, evaluated.fictional_time, eventCreatedAt);
+
+        // Initialize Phase 8 faction memberships from authored snapshot
+        initCharacterFactionMemberships(db, sim.id, newSimCharRow.id, sim.lws_id, simCharLwsId, authoredChar.id, evaluated.fictional_time, eventCreatedAt);
 
         // Ensure payload is complete and self-contained for zero-SQL replay
         finalPayload = {

@@ -270,7 +270,31 @@ export function evaluateActionPriorityCategory(proposal, character, needs, goals
  * @param {object} [context]
  * @returns {object} { score, category, actionClass, details, tieBreakHash }
  */
-export function calculateProposalScore(proposal, character, needs, goals, values, emotion, locationsById = {}, context = {}) {
+export function calculateProposalScore(proposal, characterOrState, needsArg, goalsArg, valuesArg, emotionArg, locationsByIdArg = {}, contextArg = {}) {
+    let character = characterOrState;
+    let needs = needsArg;
+    let goals = goalsArg;
+    let values = valuesArg;
+    let emotion = emotionArg;
+    let locationsById = locationsByIdArg;
+    let context = contextArg;
+
+    if (characterOrState && (
+        characterOrState.needs !== undefined ||
+        characterOrState.values !== undefined ||
+        characterOrState.relationships !== undefined ||
+        characterOrState.emotions !== undefined ||
+        characterOrState.goals !== undefined
+    )) {
+        character = characterOrState.character || { lws_id: 'test-char' };
+        needs = characterOrState.needs || [];
+        goals = characterOrState.goals || [];
+        values = characterOrState.values || [];
+        emotion = characterOrState.emotions || characterOrState.emotion || {};
+        locationsById = characterOrState.locationsById || {};
+        context = { ...characterOrState, ...(characterOrState.context || {}) };
+    }
+
     const actionType = proposal.action_type || proposal.event_type;
 
     // 1. Context Goal Resolution (§7.3)
@@ -288,17 +312,33 @@ export function calculateProposalScore(proposal, character, needs, goals, values
 
     const actionClass = getActionClass(proposal, contextGoal, character);
 
-    // Moral Veto Check (§7.4)
-    if (hasMoralVeto(values, actionClass)) {
+    // Moral Veto Check (§7.4) and Moral Conflict threshold (>= 75)
+    if (proposal.moral_conflict >= 75 || hasMoralVeto(values, actionClass)) {
         const hash = computeTieBreakHash(actionType, getProposalTarget(proposal).id, character.lws_id);
+        const reason = proposal.moral_conflict >= 75 ? 'Moral conflict threshold exceeded (>= 75)' : 'MORAL_VETO_HONESTY';
         return {
             score: -100,
+            total_score: -100,
             category: 1,
             actionClass,
             vetoed: true,
-            vetoReason: 'MORAL_VETO_HONESTY',
+            vetoReason: reason,
+            veto_reason: reason,
             tieBreakHash: hash,
-            details: { uNeed: 0, uGoal: 0, aValue: -100, bEmotion: 0, penalty: 0 },
+            utility_breakdown: {
+                u_need: 0,
+                u_goal: 0,
+                u_social: 0,
+                a_value: -100,
+                b_emotion: 0,
+                penalty: 0,
+                uNeed: 0,
+                uGoal: 0,
+                uSocial: 0,
+                aValue: -100,
+                bEmotion: 0,
+            },
+            details: { uNeed: 0, uGoal: 0, uSocial: 0, aValue: -100, bEmotion: 0, penalty: 0 },
         };
     }
 
@@ -317,6 +357,16 @@ export function calculateProposalScore(proposal, character, needs, goals, values
             maxNeedRelevance = term;
         }
     }
+
+    if (proposal.expected_need_satisfactions && typeof proposal.expected_need_satisfactions === 'object') {
+        for (const [_, satDelta] of Object.entries(proposal.expected_need_satisfactions)) {
+            const satVal = typeof satDelta === 'number' ? satDelta : 0;
+            if (satVal > maxNeedRelevance) {
+                maxNeedRelevance = satVal;
+            }
+        }
+    }
+
     const uNeed = maxNeedRelevance;
 
     // 3. U_goal
@@ -350,24 +400,77 @@ export function calculateProposalScore(proposal, character, needs, goals, values
     const procrastinationPenalty = calculateProcrastinationPenalty(proposal, character, actionClass, values, needs);
     const penalty = resourceDeficit + travelTimeCost + procrastinationPenalty;
 
-    // 7. Total Utility & Category
-    const uAction = 0.35 * uNeed + 0.30 * uGoal + 0.20 * aValue + 0.15 * bEmotion - penalty;
+    // 7. Social Utility U_social (Phase 8)
+    const target = getProposalTarget(proposal);
+    let uSocial = 0;
+    if (target.type === 'character' && target.id) {
+        let rel = null;
+        if (context.relationships) {
+            if (Array.isArray(context.relationships)) {
+                rel = context.relationships.find(r => (
+                    String(r.target_character_id) === String(target.id) ||
+                    String(r.target_character_lws_id) === String(target.id) ||
+                    String(r.target_id) === String(target.id)
+                ));
+            } else if (typeof context.relationships === 'object') {
+                rel = context.relationships[target.id] || Object.values(context.relationships).find(r => (
+                    String(r.target_character_id) === String(target.id) ||
+                    String(r.target_character_lws_id) === String(target.id) ||
+                    String(r.target_id) === String(target.id)
+                ));
+            }
+        }
+        const trust = rel?.trust ?? 0;
+        const affection = rel?.affection ?? 0;
+        const respect = rel?.respect ?? 0;
+        const loyalty = rel?.loyalty ?? 0;
+        const sameFactionBonus = (rel?.sameFaction === true || rel?.same_faction === true) ? 10 : 0;
+
+        const isHostile = actionType === 'COMBAT_ACTION' || actionType === 'MURDER' || actionType === 'ATTACK' || actionClass === 'DECEIVE' || actionClass === 'BETRAY' || actionClass === 'STEAL' || proposal.is_hostile === true;
+        const isProSocial = actionType === 'COMMUNICATE' || actionType === 'TALK' || actionType === 'ASSIST' || actionType === 'TRANSFER_ITEM' || actionClass === 'COMMUNICATE_HONEST' || actionClass === 'AID' || actionClass === 'GIFT' || actionClass === 'COOPERATE' || actionClass === 'REST_TOGETHER' || proposal.is_pro_social === true;
+
+        if (isHostile) {
+            uSocial = -0.40 * affection - 0.40 * trust - 0.20 * loyalty - sameFactionBonus;
+        } else if (isProSocial) {
+            uSocial = 0.35 * affection + 0.35 * trust + 0.20 * loyalty + 0.10 * respect + sameFactionBonus;
+        }
+        uSocial = Math.max(-100, Math.min(100, uSocial));
+    }
+
+    // 8. Total Utility & Category
+    const uAction = 0.35 * uNeed + 0.30 * uGoal + uSocial + 0.20 * aValue + 0.15 * bEmotion - penalty;
     const uFinal = Math.max(-100, Math.min(100, Math.round(uAction)));
     const category = evaluateActionPriorityCategory(proposal, character, needsList, activeGoals, context);
 
-    const target = getProposalTarget(proposal);
     const hash = computeTieBreakHash(actionType, target.id, character.lws_id);
 
     return {
         score: uFinal,
+        total_score: uFinal,
         rawScore: uAction,
         category,
         actionClass,
         vetoed: false,
+        vetoReason: null,
+        veto_reason: null,
         tieBreakHash: hash,
+        utility_breakdown: {
+            u_need: uNeed,
+            u_goal: uGoal,
+            u_social: uSocial,
+            a_value: aValue,
+            b_emotion: bEmotion,
+            penalty,
+            uNeed,
+            uGoal,
+            uSocial,
+            aValue,
+            bEmotion,
+        },
         details: {
             uNeed,
             uGoal,
+            uSocial,
             aValue,
             bEmotion,
             resourceDeficit,
@@ -496,10 +599,18 @@ export function deliberateCharacter(db, sim, character, options = {}) {
         WHERE sc.simulation_id = ? AND sc.current_location_id = ? AND sc.id != ? AND sc.deleted_at IS NULL
     `).all(simRow.id, charRow.current_location_id, charRow.id);
 
+    const relationships = db.prepare(`
+        SELECT r.*, sc2.lws_id AS target_character_lws_id
+        FROM lws_character_relationships r
+        JOIN lws_simulation_characters sc2 ON r.target_character_id = sc2.id
+        WHERE r.simulation_id = ? AND r.source_character_id = ? AND r.deleted_at IS NULL
+    `).all(simRow.id, charRow.id);
+
     const context = {
         collocatedCharacters: collocatedChars,
         collocatedCount: collocatedChars.length,
         inCombat: isInCombat(charRow),
+        relationships,
         ...(options.context || {}),
     };
 
@@ -536,6 +647,7 @@ export function deliberateCharacter(db, sim, character, options = {}) {
             chosen_action: null,
             candidate_scores: candidateEvaluations,
             candidate_evaluations: candidateEvaluations,
+            scores: scoredCandidates,
             decision_tree: { total: scoredCandidates.length, viable: 0 },
         };
     }
@@ -569,6 +681,7 @@ export function deliberateCharacter(db, sim, character, options = {}) {
             },
             candidate_scores: candidateEvaluations,
             candidate_evaluations: candidateEvaluations,
+            scores: scoredCandidates,
             decision_tree: {
                 total_candidates: scoredCandidates.length,
                 viable_candidates: viableCandidates.length,

@@ -8,6 +8,10 @@ import { setSimulationCamera } from '../perception/camera.js';
 import { updateCharacterEmotion, normalizeEmotionInput } from '../cognition/emotions.js';
 import { updateCharacterValue } from '../cognition/values.js';
 import { getProposalTarget } from '../cognition/common.js';
+import { applyRelationshipDelta, evaluateFamiliarityDecay } from '../social/relationships.js';
+import { createSocialInformation, evaluateBeliefAdoption } from '../social/rumors.js';
+import { updateFactionMembership } from '../social/factions.js';
+import { recordCharacterDevelopment } from '../social/development.js';
 
 /**
  * Table-driven state transition handlers for all stateful events.
@@ -94,6 +98,42 @@ export const STATE_TRANSITIONS = {
             SET runtime_state = ?, updated_at = ?
             WHERE id = ? AND simulation_id = ?
         `).run(JSON.stringify(mergedJson), eventCreatedAt, evaluated.actor_internal_id, sim.id);
+
+        if (evaluated.payload?.social || evaluated.payload?.social_state) {
+            const soc = evaluated.payload.social || evaluated.payload.social_state;
+            if (soc.relationship_update && evaluated.actor_internal_id) {
+                const r = soc.relationship_update;
+                const tgtRow = db.prepare('SELECT id, lws_id FROM lws_simulation_characters WHERE (lws_id = ? OR id = ?) AND simulation_id = ?').get(r.target_character_id || r.target_id, r.target_character_id || r.target_id, sim.id);
+                const actorRow = db.prepare('SELECT id, lws_id FROM lws_simulation_characters WHERE id = ?').get(evaluated.actor_internal_id);
+                if (actorRow && tgtRow) {
+                    applyRelationshipDelta(db, sim.id, sim.lws_id, actorRow.id, actorRow.lws_id, tgtRow.id, tgtRow.lws_id, r.delta || r, evaluated.event_internal_id, evaluated.event_lws_id, evaluated.fictional_time, r.interaction_type || 'update', r.narrative_rationale || '', eventCreatedAt);
+                }
+            }
+            if (soc.rumor_update) {
+                createSocialInformation(db, {
+                    ...soc.rumor_update,
+                    simulation_id: sim.id,
+                    sim_lws_id: sim.lws_id,
+                    fictional_time: evaluated.fictional_time,
+                    created_at: eventCreatedAt,
+                }, evaluated);
+            }
+            if (soc.faction_membership_update && evaluated.actor_internal_id) {
+                const f = soc.faction_membership_update;
+                updateFactionMembership(db, sim.id, evaluated.actor_internal_id, f.faction_id, f.patch || f, eventCreatedAt);
+            }
+            if (soc.development_record && evaluated.actor_internal_id) {
+                const d = soc.development_record;
+                recordCharacterDevelopment(db, {
+                    ...d,
+                    simulation_id: sim.id,
+                    sim_lws_id: sim.lws_id,
+                    simulation_character_id: evaluated.actor_internal_id,
+                    fictional_time: evaluated.fictional_time,
+                    created_at: eventCreatedAt,
+                }, evaluated);
+            }
+        }
     },
 
     [EVENT_TYPES.CHARACTER_JOIN]: () => {
@@ -355,10 +395,45 @@ export const STATE_TRANSITIONS = {
                         }
                     }
                 }
+            } else if (p.target === 'character_relationship') {
+                const srcRow = db.prepare('SELECT id, lws_id FROM lws_simulation_characters WHERE (lws_id = ? OR id = ?) AND simulation_id = ?').get(p.source_character_id || p.source_id, p.source_character_id || p.source_id, sim.id);
+                const tgtRow = db.prepare('SELECT id, lws_id FROM lws_simulation_characters WHERE (lws_id = ? OR id = ?) AND simulation_id = ?').get(p.target_character_id || p.target_id, p.target_character_id || p.target_id, sim.id);
+                if (srcRow && tgtRow) {
+                    applyRelationshipDelta(db, sim.id, sim.lws_id, srcRow.id, srcRow.lws_id, tgtRow.id, tgtRow.lws_id, p.delta || p, evaluated.event_internal_id, evaluated.event_lws_id, evaluated.fictional_time, p.interaction_type || 'director_override', p.narrative_rationale || 'Director relationship modification', eventCreatedAt);
+                }
+            } else if (p.target === 'character_development' || p.development_record || p.social_state?.development_record) {
+                const devData = p.development_record || p.social_state?.development_record || p;
+                const charRow = targetCharRow || (evaluated.actor_internal_id ? db.prepare('SELECT id, lws_id FROM lws_simulation_characters WHERE id = ?').get(evaluated.actor_internal_id) : null);
+                if (charRow) {
+                    recordCharacterDevelopment(db, {
+                        ...devData,
+                        simulation_id: sim.id,
+                        sim_lws_id: sim.lws_id,
+                        simulation_character_id: charRow.id,
+                        trigger_category: devData.trigger_category || 'director_override',
+                        causal_event_ids: devData.causal_event_ids || [evaluated.event_lws_id],
+                        fictional_time: evaluated.fictional_time,
+                        created_at: eventCreatedAt,
+                    }, evaluated);
+                }
+            } else if (p.target === 'faction_membership') {
+                const charRow = targetCharRow || (evaluated.actor_internal_id ? db.prepare('SELECT id, lws_id FROM lws_simulation_characters WHERE id = ?').get(evaluated.actor_internal_id) : null);
+                if (charRow && p.faction_id) {
+                    updateFactionMembership(db, sim.id, charRow.id, p.faction_id, p.patch || p, eventCreatedAt);
+                }
+            } else if (p.target === 'social_information' || p.rumor) {
+                const rumorData = p.rumor || p;
+                createSocialInformation(db, {
+                    ...rumorData,
+                    simulation_id: sim.id,
+                    sim_lws_id: sim.lws_id,
+                    fictional_time: evaluated.fictional_time,
+                    created_at: eventCreatedAt,
+                }, evaluated);
             }
         }
 
-        if (evaluated.actor_internal_id && p.target !== 'camera' && p.target !== 'simulation' && p.target !== 'character_knowledge' && p.target !== 'character_belief' && p.target !== 'character_memory' && !p.beliefs && !p.knowledge && !p.facts && !p.memories) {
+        if (evaluated.actor_internal_id && p.target !== 'camera' && p.target !== 'simulation' && p.target !== 'character_knowledge' && p.target !== 'character_belief' && p.target !== 'character_memory' && p.target !== 'character_relationship' && p.target !== 'character_development' && p.target !== 'faction_membership' && p.target !== 'social_information' && !p.beliefs && !p.knowledge && !p.facts && !p.memories) {
             const row = db.prepare(`
                 SELECT current_location_id, activity, physical_condition, runtime_state
                 FROM lws_simulation_characters
@@ -487,6 +562,42 @@ export const STATE_TRANSITIONS = {
                         });
                     }
                 }
+            }
+        }
+
+        // 4. Directional Relationship deltas (Phase 8)
+        if (actor && target) {
+            if (p.relationship_delta) {
+                const d = p.relationship_delta;
+                applyRelationshipDelta(db, sim.id, sim.lws_id, actor.id, actor.lws_id, target.id, target.lws_id, d, evaluated.event_internal_id, evaluated.event_lws_id, evaluated.fictional_time, 'communication', d.narrative_rationale || d.rationale || 'Conversation interaction', eventCreatedAt);
+                if (d.reverse) {
+                    applyRelationshipDelta(db, sim.id, sim.lws_id, target.id, target.lws_id, actor.id, actor.lws_id, d.reverse, evaluated.event_internal_id, evaluated.event_lws_id, evaluated.fictional_time, 'communication', d.reverse.narrative_rationale || d.reverse.rationale || 'Conversation interaction', eventCreatedAt);
+                }
+            }
+        }
+
+        // 5. Rumors & Social Information (Phase 8)
+        if (p.rumor || p.social_information) {
+            const rumorData = p.rumor || p.social_information;
+            const depth = Number(rumorData.transmission_depth ?? 0);
+            const isRoot = depth === 0;
+            const createdSocialInfo = createSocialInformation(db, {
+                simulation_id: sim.id,
+                sim_lws_id: sim.lws_id,
+                originator_character_id: actor ? actor.id : null,
+                transmitter_character_id: !isRoot ? (actor ? actor.id : null) : null,
+                transmitter_char_lws_id: !isRoot ? (actor ? actor.lws_id : null) : null,
+                recipient_character_id: !isRoot ? (target ? target.id : null) : null,
+                recipient_char_lws_id: !isRoot ? (target ? target.lws_id : null) : null,
+                causal_event_id: evaluated.event_internal_id,
+                causal_event_lws_id: evaluated.event_lws_id,
+                fictional_time: evaluated.fictional_time,
+                created_at: eventCreatedAt,
+                ...rumorData,
+            }, evaluated);
+
+            if (target && actor) {
+                evaluateBeliefAdoption(db, sim.id, target, actor, createdSocialInfo, evaluated, eventCreatedAt);
             }
         }
     },
@@ -660,12 +771,54 @@ export const STATE_TRANSITIONS = {
         // CONSUME_ITEM optionally updates nourishment or inventory
     },
 
+    [EVENT_TYPES.TRANSFER_ITEM]: (db, sim, evaluated, eventCreatedAt) => {
+        const p = evaluated.payload ?? {};
+        const actor = evaluated.actor_internal_id
+            ? db.prepare('SELECT sc.id, sc.lws_id, c.name FROM lws_simulation_characters sc JOIN lws_characters c ON sc.character_id = c.id WHERE sc.id = ?').get(evaluated.actor_internal_id)
+            : null;
+        const target = evaluated.target_internal_id
+            ? db.prepare('SELECT sc.id, sc.lws_id, c.name FROM lws_simulation_characters sc JOIN lws_characters c ON sc.character_id = c.id WHERE sc.id = ?').get(evaluated.target_internal_id)
+            : null;
+
+        if (actor && target) {
+            const impact = p.relationship_impact || {
+                delta_affection: p.delta_affection ?? 15,
+                delta_trust: p.delta_trust ?? 10,
+                delta_loyalty: p.delta_loyalty ?? 5,
+                delta_familiarity: p.delta_familiarity ?? 10,
+            };
+            applyRelationshipDelta(db, sim.id, sim.lws_id, target.id, target.lws_id, actor.id, actor.lws_id, impact, evaluated.event_internal_id, evaluated.event_lws_id, evaluated.fictional_time, 'gift', p.narrative_rationale || 'Item transfer / gift', eventCreatedAt);
+        }
+    },
+
+    [EVENT_TYPES.COMBAT_ACTION]: (db, sim, evaluated, eventCreatedAt) => {
+        const p = evaluated.payload ?? {};
+        const actor = evaluated.actor_internal_id
+            ? db.prepare('SELECT sc.id, sc.lws_id, c.name FROM lws_simulation_characters sc JOIN lws_characters c ON sc.character_id = c.id WHERE sc.id = ?').get(evaluated.actor_internal_id)
+            : null;
+        const target = evaluated.target_internal_id
+            ? db.prepare('SELECT sc.id, sc.lws_id, c.name FROM lws_simulation_characters sc JOIN lws_characters c ON sc.character_id = c.id WHERE sc.id = ?').get(evaluated.target_internal_id)
+            : null;
+
+        if (actor && target) {
+            const impact = p.relationship_impact || {
+                delta_affection: p.delta_affection ?? -40,
+                delta_trust: p.delta_trust ?? -50,
+                delta_respect: p.delta_respect ?? 0,
+                delta_loyalty: p.delta_loyalty ?? -30,
+            };
+            applyRelationshipDelta(db, sim.id, sim.lws_id, target.id, target.lws_id, actor.id, actor.lws_id, impact, evaluated.event_internal_id, evaluated.event_lws_id, evaluated.fictional_time, 'combat', p.narrative_rationale || 'Hostile confrontation in combat', eventCreatedAt);
+        }
+    },
+
     [EVENT_TYPES.TIME_ADVANCE]: (db, sim, evaluated, eventCreatedAt) => {
         db.prepare(`
             UPDATE lws_simulations
             SET current_fictional_time = ?, updated_at = ?
             WHERE id = ?
         `).run(evaluated.fictional_time, eventCreatedAt, sim.id);
+
+        evaluateFamiliarityDecay(db, sim.id, sim.lws_id, evaluated.fictional_time, evaluated.event_internal_id, evaluated.event_lws_id, eventCreatedAt);
     },
 
     [EVENT_TYPES.SCHEDULE_WORLD_EVENT]: (db, sim, evaluated, eventCreatedAt) => {

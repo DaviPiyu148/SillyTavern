@@ -13,6 +13,7 @@ SillyTavern
     ├── events/time
     ├── perception/memory
     ├── cognition (8 modules: needs, goals, intentions, values, emotions, deliberation, arbitration, common)
+    ├── social (6 modules: common, relationships, evidence, rumors, factions, development)
     ├── observation/director
     ├── persistence/replay
     ├── import/normalization

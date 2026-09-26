@@ -34,6 +34,7 @@
 - `ADR-013`: Temporal Progression, Schedules, Routines, and Travel (Phase 5).
 - `ADR-014`: Perception, Knowledge, Memory, and Observation (Phase 6).
 - `ADR-015`: Character Cognition, Goals, Values, Emotions, and Decision Making (Phase 7).
+- `ADR-016`: Social Systems, Dynamic Relationships, Rumors, Factions, and Character Development (Phase 8).
 
 ## Task routing
 
@@ -45,6 +46,9 @@ Read `DOMAIN_RULES.md`, `SIMULATION_MODEL.md`, and `EVENT_AND_TIME_MODEL.md`.
 
 ### Cognition, goals, and decisions
 Read `SIMULATION_MODEL.md`, `decisions/ADR-015-character-cognition-and-decision-making.md`, and `PERSISTENCE.md`.
+
+### Social systems, rumors, factions, and character development
+Read `SIMULATION_MODEL.md`, `decisions/ADR-016-social-systems-and-character-development.md`, `SECURITY.md`, and `PERSISTENCE.md`.
 
 ### LLM generation / prompting
 Read `PROMPT_AND_CONTEXT.md`, `SILLYTAVERN_INTEGRATION.md`, and `DOMAIN_RULES.md`.
