@@ -1083,7 +1083,7 @@ Implemented the authored world and character model for the Living World Simulato
    - `world-rules.js`: WorldRule CRUD with integer `sort_order`.
    - `prompt-configs.js`: AuthoredPromptConfig 1:1 per-world management, raising HTTP 409 conflict on duplicate creation attempt.
 3. Expanded REST API transport in `src/endpoints/living-world.js`:
-   - 40+ REST routes covering all authored entities and relationships under `/api/living-world/worlds/:worldLwsId/*`.
+   - 39 REST routes covering all authored entities and relationships under `/api/living-world/worlds/:worldLwsId/*`.
    - Parent world gating: any request under `/api/living-world/worlds/:worldLwsId/*` when the parent world is soft-deleted returns `404 {"error": "World not found"}` while child database rows remain intact.
    - Input validation: invalid UUIDs return 400; missing required fields return 400; unique name collisions return 409; cross-world / soft-deleted entity references return 400 or 404.
 4. Comprehensive automated test coverage:
