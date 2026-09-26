@@ -5,6 +5,9 @@ import { upsertCharacterKnowledge } from '../perception/knowledge.js';
 import { createCharacterMemory, patchCharacterMemory } from '../perception/memories.js';
 import { upsertCharacterBelief } from '../perception/beliefs.js';
 import { setSimulationCamera } from '../perception/camera.js';
+import { updateCharacterEmotion, normalizeEmotionInput } from '../cognition/emotions.js';
+import { updateCharacterValue } from '../cognition/values.js';
+import { getProposalTarget } from '../cognition/common.js';
 
 /**
  * Table-driven state transition handlers for all stateful events.
@@ -150,6 +153,47 @@ export const STATE_TRANSITIONS = {
             });
         }
 
+        // Map-based cognition mutations
+        if (p.character_needs && typeof p.character_needs === 'object') {
+            for (const [charKey, needsMap] of Object.entries(p.character_needs)) {
+                const cRow = db.prepare('SELECT id FROM lws_simulation_characters WHERE (lws_id = ? OR id = ?) AND simulation_id = ?').get(charKey, charKey, sim.id);
+                if (cRow && typeof needsMap === 'object') {
+                    for (const [nName, nVal] of Object.entries(needsMap)) {
+                        const sat = typeof nVal === 'number' ? Math.max(0, Math.min(100, Math.round(nVal))) : (nVal?.satisfaction !== undefined ? Math.max(0, Math.min(100, Math.round(nVal.satisfaction))) : null);
+                        const dec = nVal?.decay_rate !== undefined ? Math.max(0, Math.min(1000, Math.round(nVal.decay_rate))) : null;
+                        if (sat !== null && dec !== null) {
+                            db.prepare('UPDATE lws_character_needs SET satisfaction = ?, decay_rate = ?, updated_at = ? WHERE simulation_character_id = ? AND need_name = ?').run(sat, dec, eventCreatedAt, cRow.id, nName);
+                        } else if (sat !== null) {
+                            db.prepare('UPDATE lws_character_needs SET satisfaction = ?, updated_at = ? WHERE simulation_character_id = ? AND need_name = ?').run(sat, eventCreatedAt, cRow.id, nName);
+                        } else if (dec !== null) {
+                            db.prepare('UPDATE lws_character_needs SET decay_rate = ?, updated_at = ? WHERE simulation_character_id = ? AND need_name = ?').run(dec, eventCreatedAt, cRow.id, nName);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (p.character_values && typeof p.character_values === 'object') {
+            for (const [charKey, valMap] of Object.entries(p.character_values)) {
+                const cRow = db.prepare('SELECT id FROM lws_simulation_characters WHERE (lws_id = ? OR id = ?) AND simulation_id = ?').get(charKey, charKey, sim.id);
+                if (cRow && typeof valMap === 'object') {
+                    for (const [dim, strVal] of Object.entries(valMap)) {
+                        const str = typeof strVal === 'number' ? Math.max(-100, Math.min(100, Math.round(strVal))) : (strVal?.strength !== undefined ? Math.max(-100, Math.min(100, Math.round(strVal.strength))) : 0);
+                        updateCharacterValue(db, cRow.id, dim, str, eventCreatedAt);
+                    }
+                }
+            }
+        }
+
+        if (p.character_emotions && typeof p.character_emotions === 'object') {
+            for (const [charKey, emoData] of Object.entries(p.character_emotions)) {
+                const cRow = db.prepare('SELECT id FROM lws_simulation_characters WHERE (lws_id = ? OR id = ?) AND simulation_id = ?').get(charKey, charKey, sim.id);
+                if (cRow && typeof emoData === 'object') {
+                    updateCharacterEmotion(db, cRow.id, emoData, evaluated.fictional_time, eventCreatedAt);
+                }
+            }
+        }
+
         if (targetCharRow) {
             // 1. Facts / Knowledge array or single
             if (Array.isArray(p.facts) || Array.isArray(p.knowledge)) {
@@ -254,6 +298,63 @@ export const STATE_TRANSITIONS = {
             } else if (p.target === 'character_memory') {
                 const memLwsId = p.memory_lws_id || p.lws_id;
                 patchCharacterMemory(db, memLwsId, p.patch || {}, eventCreatedAt);
+            } else if (p.target === 'character_needs') {
+                const needName = p.need_name;
+                const sat = p.satisfaction !== undefined ? Math.max(0, Math.min(100, Math.round(p.satisfaction))) : null;
+                const decay = p.decay_rate !== undefined ? Math.max(0, Math.min(1000, Math.round(p.decay_rate))) : null;
+                if (needName) {
+                    if (sat !== null && decay !== null) {
+                        db.prepare(`
+                            UPDATE lws_character_needs
+                            SET satisfaction = ?, decay_rate = ?, updated_at = ?
+                            WHERE simulation_character_id = ? AND need_name = ?
+                        `).run(sat, decay, eventCreatedAt, targetCharRow.id, needName);
+                    } else if (sat !== null) {
+                        db.prepare(`
+                            UPDATE lws_character_needs
+                            SET satisfaction = ?, updated_at = ?
+                            WHERE simulation_character_id = ? AND need_name = ?
+                        `).run(sat, eventCreatedAt, targetCharRow.id, needName);
+                    } else if (decay !== null) {
+                        db.prepare(`
+                            UPDATE lws_character_needs
+                            SET decay_rate = ?, updated_at = ?
+                            WHERE simulation_character_id = ? AND need_name = ?
+                        `).run(decay, eventCreatedAt, targetCharRow.id, needName);
+                    }
+                }
+            } else if (p.target === 'character_value' && p.dimension) {
+                const strength = p.strength !== undefined ? Math.max(-100, Math.min(100, Math.round(p.strength))) : 0;
+                updateCharacterValue(db, targetCharRow.id, p.dimension, strength, eventCreatedAt);
+            } else if (p.target === 'character_emotion') {
+                const emoData = p.emotion || p;
+                updateCharacterEmotion(db, targetCharRow.id, emoData, evaluated.fictional_time, eventCreatedAt);
+            } else if (p.target === 'character_goal') {
+                const goalLwsId = p.goal_lws_id || p.lws_id;
+                if (goalLwsId) {
+                    const patch = p.patch || p;
+                    const status = patch.status;
+                    const priority = patch.priority;
+                    const progress = patch.progress;
+                    const deletedAt = patch.deleted_at;
+                    if (deletedAt !== undefined) {
+                        db.prepare(`
+                            UPDATE lws_character_goals
+                            SET deleted_at = ?, status = 'abandoned', updated_at = ?
+                            WHERE lws_id = ? AND simulation_character_id = ?
+                        `).run(deletedAt, eventCreatedAt, goalLwsId, targetCharRow.id);
+                    } else if (status !== undefined || priority !== undefined || progress !== undefined) {
+                        const existingG = db.prepare('SELECT * FROM lws_character_goals WHERE lws_id = ?').get(goalLwsId);
+                        if (existingG) {
+                            db.prepare(`
+                                UPDATE lws_character_goals
+                                SET status = COALESCE(?, status), priority = COALESCE(?, priority),
+                                    progress = COALESCE(?, progress), updated_at = ?
+                                WHERE id = ?
+                            `).run(status ?? null, priority ?? null, progress ?? null, eventCreatedAt, existingG.id);
+                        }
+                    }
+                }
             }
         }
 
@@ -547,6 +648,18 @@ export const STATE_TRANSITIONS = {
         `).run(act, eventCreatedAt, evaluated.actor_internal_id, sim.id);
     },
 
+    [EVENT_TYPES.EMOTE]: (db, sim, evaluated, eventCreatedAt) => {
+        const p = evaluated.payload ?? {};
+        if (evaluated.actor_internal_id && (p.emotion || p.dominant_emotion)) {
+            const emoData = p.emotion || p;
+            updateCharacterEmotion(db, evaluated.actor_internal_id, emoData, evaluated.fictional_time, eventCreatedAt);
+        }
+    },
+
+    [EVENT_TYPES.CONSUME_ITEM]: (db, sim, evaluated, eventCreatedAt) => {
+        // CONSUME_ITEM optionally updates nourishment or inventory
+    },
+
     [EVENT_TYPES.TIME_ADVANCE]: (db, sim, evaluated, eventCreatedAt) => {
         db.prepare(`
             UPDATE lws_simulations
@@ -724,5 +837,86 @@ export function applyStateTransition(db, sim, evaluated, eventCreatedAt) {
     const handler = STATE_TRANSITIONS[evaluated.event_type];
     if (handler) {
         handler(db, sim, evaluated, eventCreatedAt);
+    }
+
+    // Phase 7 Option B: Persist accepted intention on any proposable action
+    if (evaluated.payload?.intention && evaluated.actor_internal_id) {
+        const intention = evaluated.payload.intention;
+        let goalInternalId = null;
+        if (intention.goal_id) {
+            const g = db.prepare('SELECT id FROM lws_character_goals WHERE (lws_id = ? OR id = ?) AND simulation_character_id = ?').get(intention.goal_id, intention.goal_id, evaluated.actor_internal_id);
+            if (g) goalInternalId = g.id;
+        }
+        const target = intention.target_entity_type
+            ? { type: intention.target_entity_type, id: intention.target_entity_id }
+            : getProposalTarget(evaluated);
+
+        const existingIntention = db.prepare('SELECT id FROM lws_character_intentions WHERE lws_id = ?').get(intention.lws_id);
+        if (existingIntention) {
+            db.prepare(`
+                UPDATE lws_character_intentions
+                SET status = 'completed', updated_at = ?
+                WHERE id = ?
+            `).run(eventCreatedAt, existingIntention.id);
+        } else {
+            db.prepare(`
+                INSERT INTO lws_character_intentions (
+                    lws_id, simulation_id, simulation_character_id, goal_id,
+                    action_type, target_entity_type, target_entity_id, rationale,
+                    status, priority, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?)
+            `).run(
+                intention.lws_id,
+                sim.id,
+                evaluated.actor_internal_id,
+                goalInternalId,
+                intention.action_type || evaluated.event_type,
+                target.type,
+                target.id,
+                intention.rationale || '',
+                intention.priority || 50,
+                eventCreatedAt,
+                eventCreatedAt,
+            );
+        }
+    }
+
+    // Phase 7 Option B: Persist failed intention on UPDATE_RUNTIME_STATE cognition variant
+    if (evaluated.payload?.cognition?.failed_intention && evaluated.actor_internal_id) {
+        const failed = evaluated.payload.cognition.failed_intention;
+        let goalInternalId = null;
+        if (failed.goal_id) {
+            const g = db.prepare('SELECT id FROM lws_character_goals WHERE (lws_id = ? OR id = ?) AND simulation_character_id = ?').get(failed.goal_id, failed.goal_id, evaluated.actor_internal_id);
+            if (g) goalInternalId = g.id;
+        }
+        const existingIntention = db.prepare('SELECT id FROM lws_character_intentions WHERE lws_id = ?').get(failed.lws_id);
+        if (existingIntention) {
+            db.prepare(`
+                UPDATE lws_character_intentions
+                SET status = 'failed', failure_reason = ?, updated_at = ?
+                WHERE id = ?
+            `).run(failed.failure_reason || 'AUTHORITY_REJECTED', eventCreatedAt, existingIntention.id);
+        } else {
+            db.prepare(`
+                INSERT INTO lws_character_intentions (
+                    lws_id, simulation_id, simulation_character_id, goal_id,
+                    action_type, target_entity_type, target_entity_id, rationale,
+                    status, failure_reason, priority, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'failed', ?, ?, ?, ?)
+            `).run(
+                failed.lws_id,
+                sim.id,
+                evaluated.actor_internal_id,
+                goalInternalId,
+                failed.action_type,
+                failed.target_entity_type || 'none',
+                failed.target_entity_id || null,
+                failed.rationale || '',
+                failed.failure_reason || 'AUTHORITY_REJECTED',
+                failed.priority || 50,
+                eventCreatedAt,
+                eventCreatedAt,
+            );
+        }
     }
 }

@@ -67,3 +67,16 @@ export class LwsTurnRejectedError extends LwsError {
     }
 }
 
+export class LwsInvalidStateTransitionError extends LwsError {
+    /**
+     * @param {string} message
+     * @param {string[]} [fields]
+     */
+    constructor(message = 'Invalid state transition', fields = []) {
+        super(message);
+        this.name = 'LwsInvalidStateTransitionError';
+        this.fields = fields;
+    }
+}
+
+

@@ -6,6 +6,9 @@ import { evaluateAuthority } from './authority.js';
 import { applyStateTransition } from './state-transitions.js';
 import { EVENT_TYPES } from './taxonomy.js';
 import { evaluateEventPerceptions } from '../perception/spatial.js';
+import { initCharacterNeeds } from '../cognition/needs.js';
+import { initCharacterValues } from '../cognition/values.js';
+import { initCharacterEmotion } from '../cognition/emotions.js';
 
 /**
  * Computes a deterministic SHA-256 fingerprint of an event proposal for idempotency validation.
@@ -173,6 +176,11 @@ export function internalCommitEvent(db, sim, proposal, callerContext = {}) {
 
         const newSimCharRow = db.prepare('SELECT id FROM lws_simulation_characters WHERE lws_id = ?').get(simCharLwsId);
         finalActorInternalId = newSimCharRow.id;
+
+        // Initialize Phase 7 character cognition tables (5 needs, 6 values, 1 emotion)
+        initCharacterNeeds(db, sim.id, newSimCharRow.id, sim.lws_id, simCharLwsId, evaluated.fictional_time, eventCreatedAt);
+        initCharacterValues(db, sim.id, newSimCharRow.id, sim.lws_id, simCharLwsId, eventCreatedAt);
+        initCharacterEmotion(db, sim.id, newSimCharRow.id, sim.lws_id, simCharLwsId, evaluated.fictional_time, eventCreatedAt);
 
         // Ensure payload is complete and self-contained for zero-SQL replay
         finalPayload = {

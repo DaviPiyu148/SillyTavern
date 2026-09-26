@@ -7,6 +7,7 @@ import {
     LwsConflictError,
     LwsAuthorityError,
     LwsTurnRejectedError,
+    LwsInvalidStateTransitionError,
     createWorld,
     getWorldByLwsId,
     listWorlds,
@@ -80,6 +81,18 @@ import {
     getSimulationCamera,
     buildSubjectivePerspective,
     buildObserverPerspective,
+    NEED_NAMES,
+    getCharacterNeeds,
+    getActiveAcuteGoals,
+    listCharacterGoals,
+    createGoal,
+    updateGoal,
+    deleteGoal,
+    getActiveIntention,
+    listCharacterIntentions,
+    getCharacterValues,
+    getCharacterEmotion,
+    deliberateCharacter,
     EVENT_TYPES,
     getDb,
 } from '../living-world/index.js';
@@ -103,6 +116,9 @@ function handleRouteError(err, res, routeName) {
     }
     if (err instanceof LwsConflictError) {
         return res.status(409).json({ error: err.message });
+    }
+    if (err instanceof LwsInvalidStateTransitionError) {
+        return res.status(422).json({ error: err.message, code: 'INVALID_STATE_TRANSITION', fields: err.fields ?? [] });
     }
     if (err instanceof LwsAuthorityError) {
         if (err.code === 'DIRECTOR_UNAUTHORIZED' || err.code === 'FORBIDDEN_PROVENANCE') {
@@ -133,6 +149,45 @@ function checkUuidParams(params, res) {
     }
     return true;
 }
+
+/**
+ * Ensures an active simulation is not paused for mutating routes.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} simLwsId
+ * @returns {object}
+ */
+function ensureMutableSimulation(db, simLwsId) {
+    const sim = ensureActiveSimulation(db, simLwsId);
+    if (sim.status === 'paused') {
+        throw new LwsAuthorityError('Simulation is paused', 'SIMULATION_IS_PAUSED');
+    }
+    return sim;
+}
+
+/**
+ * Ensures simulation character exists and is not soft-deleted.
+ * @param {import('better-sqlite3').Database} db
+ * @param {number} simId
+ * @param {string} charLwsId
+ * @returns {object}
+ */
+function ensureSimulationCharacter(db, simId, charLwsId) {
+    if (!isValidUuid(charLwsId)) {
+        throw new LwsValidationError('Invalid character UUID format', ['charLwsId']);
+    }
+    const char = db.prepare(`
+        SELECT sc.*, c.name, c.lws_id AS authored_character_lws_id
+        FROM lws_simulation_characters sc
+        JOIN lws_characters c ON sc.character_id = c.id
+        WHERE sc.simulation_id = ? AND (sc.lws_id = ? OR c.lws_id = ?) AND sc.deleted_at IS NULL
+    `).get(simId, charLwsId, charLwsId);
+    if (!char) {
+        throw new LwsNotFoundError('Character not found in simulation');
+    }
+    return char;
+}
+
+
 
 // ============================================================================
 // System Status / Ping
@@ -1369,4 +1424,250 @@ router.get('/simulations/:simLwsId/observer/perspective', (req, res) => {
     }
 });
 
+// ============================================================================
+// Phase 7: Character Cognition and Decision Making
+// ============================================================================
+
+// 1. GET /simulations/:simLwsId/characters/:charLwsId/cognition
+router.get('/simulations/:simLwsId/characters/:charLwsId/cognition', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const char = ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+
+        const needs = getCharacterNeeds(db, char.id);
+        const acuteNeedGoals = getActiveAcuteGoals(db, char.id);
+        const activeGoals = listCharacterGoals(db, req.params.charLwsId, { status: 'active', include_deleted: false });
+        const activeIntention = getActiveIntention(db, char.id);
+        const values = getCharacterValues(db, char.id);
+        const currentEmotion = getCharacterEmotion(db, char.id);
+
+        return res.json({
+            character_id: req.params.charLwsId,
+            needs,
+            acute_need_goals: acuteNeedGoals,
+            active_goals: activeGoals,
+            active_intention: activeIntention,
+            values,
+            current_emotion: currentEmotion,
+        });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/cognition');
+    }
+});
+
+// 2. GET /simulations/:simLwsId/characters/:charLwsId/needs
+router.get('/simulations/:simLwsId/characters/:charLwsId/needs', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const char = ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+
+        const needs = getCharacterNeeds(db, char.id);
+        return res.json({ needs });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/needs');
+    }
+});
+
+// 3. PUT /simulations/:simLwsId/characters/:charLwsId/needs/:needName
+router.put('/simulations/:simLwsId/characters/:charLwsId/needs/:needName', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const isAdmin = req.user?.profile?.admin === true || req.isAdmin === true;
+        if (!isAdmin) {
+            throw new LwsAuthorityError('Director privileges required for need override', 'DIRECTOR_UNAUTHORIZED');
+        }
+
+        const db = getDb();
+        const sim = ensureMutableSimulation(db, req.params.simLwsId);
+        const char = ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+
+        const needName = req.params.needName;
+        if (!NEED_NAMES.includes(needName)) {
+            throw new LwsValidationError(`Invalid need_name '${needName}'. Must be one of: ${NEED_NAMES.join(', ')}`, ['needName']);
+        }
+
+        const rawValue = req.body?.value;
+        if (rawValue === undefined || rawValue === null || typeof rawValue !== 'number' || isNaN(rawValue)) {
+            throw new LwsValidationError('Numeric value is required', ['value']);
+        }
+        const value = Math.max(0, Math.min(100, Math.round(rawValue)));
+
+        commitEvent(req.params.simLwsId, {
+            event_type: EVENT_TYPES.DIRECTOR_MODIFY_STATE,
+            actor_character_id: req.params.charLwsId,
+            fictional_time: sim.current_fictional_time,
+            provenance: 'director',
+            payload: {
+                character_needs: {
+                    [req.params.charLwsId]: {
+                        [needName]: value,
+                    },
+                },
+            },
+        }, { isDedicatedRoute: true, isAdmin: true });
+
+        const updatedNeed = db.prepare(`
+            SELECT * FROM lws_character_needs
+            WHERE simulation_character_id = ? AND need_name = ?
+        `).get(char.id, needName);
+
+        return res.json(updatedNeed);
+    } catch (err) {
+        return handleRouteError(err, res, 'PUT /simulations/:simLwsId/characters/:charLwsId/needs/:needName');
+    }
+});
+
+// 4. GET /simulations/:simLwsId/characters/:charLwsId/goals
+router.get('/simulations/:simLwsId/characters/:charLwsId/goals', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+
+        const goals = listCharacterGoals(db, req.params.charLwsId, {
+            status: req.query.status,
+            goal_type: req.query.goal_type,
+            include_deleted: req.query.include_deleted === 'true' || req.query.include_deleted === true,
+        });
+        return res.json({ goals });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/goals');
+    }
+});
+
+// 5. POST /simulations/:simLwsId/characters/:charLwsId/goals
+router.post('/simulations/:simLwsId/characters/:charLwsId/goals', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureMutableSimulation(db, req.params.simLwsId);
+        const char = ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+
+        const body = req.body || {};
+        if (body.priority !== undefined && body.priority !== null) {
+            const p = Number(body.priority);
+            if (!Number.isInteger(p) || p < 1 || p > 79) {
+                throw new LwsValidationError('Goal priority must be an integer between 1 and 79', ['priority']);
+            }
+        }
+
+        const goal = createGoal(db, sim.id, char.id, body);
+        return res.status(201).json(goal);
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/characters/:charLwsId/goals');
+    }
+});
+
+// 6. PATCH /simulations/:simLwsId/characters/:charLwsId/goals/:goalLwsId
+router.patch('/simulations/:simLwsId/characters/:charLwsId/goals/:goalLwsId', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId, goalLwsId: req.params.goalLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureMutableSimulation(db, req.params.simLwsId);
+        ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+
+        const goal = updateGoal(db, req.params.goalLwsId, req.body || {});
+        return res.json(goal);
+    } catch (err) {
+        return handleRouteError(err, res, 'PATCH /simulations/:simLwsId/characters/:charLwsId/goals/:goalLwsId');
+    }
+});
+
+// 7. DELETE /simulations/:simLwsId/characters/:charLwsId/goals/:goalLwsId
+router.delete('/simulations/:simLwsId/characters/:charLwsId/goals/:goalLwsId', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId, goalLwsId: req.params.goalLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureMutableSimulation(db, req.params.simLwsId);
+        ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+
+        deleteGoal(db, req.params.goalLwsId);
+        return res.status(204).send();
+    } catch (err) {
+        return handleRouteError(err, res, 'DELETE /simulations/:simLwsId/characters/:charLwsId/goals/:goalLwsId');
+    }
+});
+
+// 8. GET /simulations/:simLwsId/characters/:charLwsId/intentions
+router.get('/simulations/:simLwsId/characters/:charLwsId/intentions', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+
+        const intentions = listCharacterIntentions(db, req.params.charLwsId, {
+            status: req.query.status,
+            include_terminal: req.query.include_terminal === 'true' || req.query.include_terminal === true,
+            limit: req.query.limit,
+        });
+        return res.json({ intentions });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/intentions');
+    }
+});
+
+// 9. GET /simulations/:simLwsId/characters/:charLwsId/values
+router.get('/simulations/:simLwsId/characters/:charLwsId/values', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const sim = ensureActiveSimulation(db, req.params.simLwsId);
+        const char = ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+
+        const values = getCharacterValues(db, char.id);
+        return res.json({ values });
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /simulations/:simLwsId/characters/:charLwsId/values');
+    }
+});
+
+// 10. POST /simulations/:simLwsId/characters/:charLwsId/deliberate
+router.post('/simulations/:simLwsId/characters/:charLwsId/deliberate', (req, res) => {
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    if (!checkUuidParams({ simLwsId: req.params.simLwsId, charLwsId: req.params.charLwsId }, res)) return;
+    try {
+        const db = getDb();
+        const executeChosenAction = req.body?.execute_chosen_action === true;
+
+        if (executeChosenAction) {
+            ensureMutableSimulation(db, req.params.simLwsId);
+        } else {
+            ensureActiveSimulation(db, req.params.simLwsId);
+        }
+
+        const sim = db.prepare('SELECT id FROM lws_simulations WHERE lws_id = ?').get(req.params.simLwsId);
+        ensureSimulationCharacter(db, sim.id, req.params.charLwsId);
+
+        const result = deliberateCharacter(db, req.params.simLwsId, req.params.charLwsId, {
+            executeChosenAction,
+            candidates: req.body?.candidates,
+            context: req.body?.context,
+        });
+
+        if (executeChosenAction && result.success === false) {
+            return res.status(422).json(result);
+        }
+
+        return res.json(result);
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /simulations/:simLwsId/characters/:charLwsId/deliberate');
+    }
+});
+
 export { router };
+

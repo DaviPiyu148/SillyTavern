@@ -101,4 +101,13 @@ export * from './perception/memories.js';
 export * from './perception/memory-retrieval.js';
 export * from './perception/beliefs.js';
 export * from './perception/camera.js';
+export * from './cognition/common.js';
+export * from './cognition/needs.js';
+export * from './cognition/emotions.js';
+export * from './cognition/values.js';
+export * from './cognition/goals.js';
+export * from './cognition/intentions.js';
+export * from './cognition/deliberation.js';
+export * from './cognition/arbitration.js';
+
 

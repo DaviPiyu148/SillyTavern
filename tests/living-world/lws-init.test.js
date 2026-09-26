@@ -47,11 +47,11 @@ describe('LWS Subsystem Lifecycle and Initialization', () => {
 
         const status = getLwsStatus();
         expect(status.initialized).toBe(true);
-        expect(status.schemaVersion).toBe(6);
+        expect(status.schemaVersion).toBe(7);
 
         expect(isLwsAvailable()).toBe(true);
         expect(getDb()).toBeDefined();
-        expect(getDbVersion()).toBe(6);
+        expect(getDbVersion()).toBe(7);
     });
 
     test('idempotent initialization does not throw and preserves state', async () => {
@@ -66,8 +66,9 @@ describe('LWS Subsystem Lifecycle and Initialization', () => {
 
         const status = getLwsStatus();
         expect(status.initialized).toBe(true);
-        expect(status.schemaVersion).toBe(6);
+        expect(status.schemaVersion).toBe(7);
     });
+
 
     test('clean shutdown closes database connection and resets status', async () => {
         const tempRoot = makeTempDataRoot();

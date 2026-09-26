@@ -3,6 +3,9 @@ import { safeJsonParse, ensureActiveSimulation } from '../simulations/common.js'
 import { generateDeterministicUuid } from '../authored/common.js';
 import { deepMerge, EVENT_TYPES } from './taxonomy.js';
 import { listEvents } from './events.js';
+import { NEED_NAMES } from '../cognition/needs.js';
+import { VALUE_DIMENSIONS } from '../cognition/values.js';
+import { normalizeEmotionInput } from '../cognition/emotions.js';
 
 /**
  * Pure, deterministic in-memory simulation reducer.
@@ -18,6 +21,31 @@ export function simulationReducer(state, event) {
     const simLwsId = event.simulation_id || state.simulation.lws_id;
     if (simLwsId && !state.simulation.lws_id) {
         state.simulation.lws_id = simLwsId;
+    }
+
+    // Phase 7 Option B: Fold payload.intention on any event
+    if (payload.intention && event.actor_character_id) {
+        const intention = payload.intention;
+        const actorId = event.actor_character_id;
+        state.intentions[actorId] = state.intentions[actorId] || {};
+        state.intentions[actorId][intention.lws_id] = {
+            lws_id: intention.lws_id,
+            simulation_id: simLwsId,
+            simulation_character_id: actorId,
+            goal_id: intention.goal_id ?? null,
+            action_type: intention.action_type || event.event_type,
+            target_entity_type: intention.target_entity_type || 'none',
+            target_entity_id: intention.target_entity_id ?? null,
+            rationale: intention.rationale || '',
+            status: intention.status || 'completed',
+            cancellation_reason: intention.cancellation_reason ?? null,
+            failure_reason: intention.failure_reason ?? null,
+            priority: intention.priority ?? 50,
+            attempt_index: intention.attempt_index,
+            causal_context: intention.causal_context,
+            created_at: event.created_at,
+            updated_at: event.created_at,
+        };
     }
 
     switch (event.event_type) {
@@ -67,6 +95,50 @@ export function simulationReducer(state, event) {
             state.knowledge[charLwsId] = state.knowledge[charLwsId] || {};
             state.memories[charLwsId] = state.memories[charLwsId] || {};
             state.beliefs[charLwsId] = state.beliefs[charLwsId] || {};
+
+            state.needs[charLwsId] = state.needs[charLwsId] || {};
+            for (const needName of NEED_NAMES) {
+                state.needs[charLwsId][needName] = {
+                    lws_id: generateDeterministicUuid('need', simLwsId, charLwsId, needName),
+                    simulation_id: simLwsId,
+                    simulation_character_id: charLwsId,
+                    need_name: needName,
+                    satisfaction: 100,
+                    decay_rate: 100,
+                    last_evaluated_time: event.fictional_time,
+                    created_at: event.created_at,
+                    updated_at: event.created_at,
+                };
+            }
+
+            state.values[charLwsId] = state.values[charLwsId] || {};
+            for (const dim of VALUE_DIMENSIONS) {
+                state.values[charLwsId][dim] = {
+                    lws_id: generateDeterministicUuid('value', simLwsId, charLwsId, dim),
+                    simulation_id: simLwsId,
+                    simulation_character_id: charLwsId,
+                    dimension: dim,
+                    strength: 0,
+                    created_at: event.created_at,
+                    updated_at: event.created_at,
+                };
+            }
+
+            state.emotions[charLwsId] = {
+                lws_id: generateDeterministicUuid('emotion', simLwsId, charLwsId),
+                simulation_id: simLwsId,
+                simulation_character_id: charLwsId,
+                dominant_emotion: 'neutral',
+                intensity: 0,
+                arousal: 50,
+                valence: 0,
+                last_updated_time: event.fictional_time,
+                created_at: event.created_at,
+                updated_at: event.created_at,
+            };
+
+            state.goals[charLwsId] = state.goals[charLwsId] || {};
+            state.intentions[charLwsId] = state.intentions[charLwsId] || {};
             break;
         }
 
@@ -88,14 +160,48 @@ export function simulationReducer(state, event) {
             }
             break;
 
-        case EVENT_TYPES.UPDATE_RUNTIME_STATE:
-            if (state.characters[event.actor_character_id]) {
-                state.characters[event.actor_character_id].runtime_state = deepMerge(
-                    state.characters[event.actor_character_id].runtime_state,
+        case EVENT_TYPES.UPDATE_RUNTIME_STATE: {
+            const actorId = event.actor_character_id;
+            if (state.characters[actorId] && payload.patch) {
+                state.characters[actorId].runtime_state = deepMerge(
+                    state.characters[actorId].runtime_state,
                     payload.patch ?? {},
                 );
             }
+            if (payload.cognition?.failed_intention && actorId) {
+                const failed = payload.cognition.failed_intention;
+                state.intentions[actorId] = state.intentions[actorId] || {};
+                state.intentions[actorId][failed.lws_id] = {
+                    lws_id: failed.lws_id,
+                    simulation_id: simLwsId,
+                    simulation_character_id: actorId,
+                    goal_id: failed.goal_id ?? null,
+                    action_type: failed.action_type,
+                    target_entity_type: failed.target_entity_type || 'none',
+                    target_entity_id: failed.target_entity_id ?? null,
+                    rationale: failed.rationale || '',
+                    status: 'failed',
+                    cancellation_reason: null,
+                    failure_reason: failed.failure_reason || 'AUTHORITY_REJECTED',
+                    priority: failed.priority ?? 50,
+                    attempt_index: failed.attempt_index,
+                    causal_context: failed.causal_context,
+                    created_at: event.created_at,
+                    updated_at: event.created_at,
+                };
+            }
+            if (payload.cognition?.needs && actorId) {
+                state.needs[actorId] = state.needs[actorId] || {};
+                for (const [k, v] of Object.entries(payload.cognition.needs)) {
+                    if (state.needs[actorId][k]) {
+                        state.needs[actorId][k].satisfaction = v.satisfaction ?? state.needs[actorId][k].satisfaction;
+                        state.needs[actorId][k].decay_rate = v.decay_rate ?? state.needs[actorId][k].decay_rate;
+                        state.needs[actorId][k].updated_at = event.created_at;
+                    }
+                }
+            }
             break;
+        }
 
         case EVENT_TYPES.CHARACTER_LEAVE:
             if (state.characters[event.actor_character_id]) {
@@ -454,7 +560,48 @@ export function simulationReducer(state, event) {
                     }
                 }
 
-                if (state.characters[event.actor_character_id] && payload.target !== 'camera' && payload.target !== 'simulation' && payload.target !== 'character_knowledge' && payload.target !== 'character_belief' && payload.target !== 'character_memory' && !payload.beliefs && !payload.knowledge && !payload.facts && !payload.memories) {
+                if (payload.target === 'character_needs' && payload.need_name) {
+                    state.needs[targetCharId] = state.needs[targetCharId] || {};
+                    if (state.needs[targetCharId][payload.need_name]) {
+                        if (payload.satisfaction !== undefined) state.needs[targetCharId][payload.need_name].satisfaction = payload.satisfaction;
+                        if (payload.decay_rate !== undefined) state.needs[targetCharId][payload.need_name].decay_rate = payload.decay_rate;
+                        state.needs[targetCharId][payload.need_name].updated_at = event.created_at;
+                    }
+                } else if (payload.target === 'character_value' && payload.dimension) {
+                    state.values[targetCharId] = state.values[targetCharId] || {};
+                    if (state.values[targetCharId][payload.dimension]) {
+                        state.values[targetCharId][payload.dimension].strength = payload.strength;
+                        state.values[targetCharId][payload.dimension].updated_at = event.created_at;
+                    }
+                } else if (payload.target === 'character_emotion') {
+                    const normalized = normalizeEmotionInput(payload.emotion || payload);
+                    state.emotions[targetCharId] = {
+                        ...(state.emotions[targetCharId] || {}),
+                        ...normalized,
+                        last_updated_time: event.fictional_time,
+                        updated_at: event.created_at,
+                    };
+                } else if (payload.target === 'character_goal') {
+                    const goalLwsId = payload.goal_lws_id || payload.lws_id;
+                    if (goalLwsId) {
+                        state.goals[targetCharId] = state.goals[targetCharId] || {};
+                        const patch = payload.patch || payload;
+                        if (state.goals[targetCharId][goalLwsId]) {
+                            Object.assign(state.goals[targetCharId][goalLwsId], patch, { updated_at: event.created_at });
+                        } else {
+                            state.goals[targetCharId][goalLwsId] = {
+                                lws_id: goalLwsId,
+                                simulation_id: simLwsId,
+                                simulation_character_id: targetCharId,
+                                ...patch,
+                                created_at: event.created_at,
+                                updated_at: event.created_at,
+                            };
+                        }
+                    }
+                }
+
+                if (state.characters[event.actor_character_id] && payload.target !== 'camera' && payload.target !== 'simulation' && payload.target !== 'character_knowledge' && payload.target !== 'character_belief' && payload.target !== 'character_memory' && payload.target !== 'character_needs' && payload.target !== 'character_value' && payload.target !== 'character_emotion' && payload.target !== 'character_goal' && !payload.beliefs && !payload.knowledge && !payload.facts && !payload.memories) {
                     const char = state.characters[event.actor_character_id];
                     if (event.location_id !== null && event.location_id !== undefined) char.current_location_id = event.location_id;
                     if (payload.activity !== undefined) char.activity = payload.activity;
@@ -463,6 +610,20 @@ export function simulationReducer(state, event) {
                         char.runtime_state = deepMerge(char.runtime_state, payload.runtime_state);
                     }
                 }
+            }
+            break;
+        }
+
+        case EVENT_TYPES.EMOTE: {
+            const actorId = event.actor_character_id;
+            if (actorId && (payload.emotion || payload.dominant_emotion)) {
+                const normalized = normalizeEmotionInput(payload.emotion || payload);
+                state.emotions[actorId] = {
+                    ...(state.emotions[actorId] || {}),
+                    ...normalized,
+                    last_updated_time: event.fictional_time,
+                    updated_at: event.created_at,
+                };
             }
             break;
         }
@@ -569,6 +730,11 @@ export function replaySimulation(events) {
         memories: {},
         beliefs: {},
         cameras: {},
+        needs: {},
+        goals: {},
+        intentions: {},
+        values: {},
+        emotions: {},
     };
 
     return events.reduce(simulationReducer, initialState);
@@ -767,8 +933,116 @@ export function verifySimulationParity(simLwsId) {
         }
     }
 
+    // 7. Compare Needs (Phase 7)
+    const dbNeeds = db.prepare(`
+        SELECT n.*, sc.lws_id AS char_lws_id
+        FROM lws_character_needs n
+        JOIN lws_simulation_characters sc ON n.simulation_character_id = sc.id
+        WHERE n.simulation_id = ?
+    `).all(sim.id);
+
+    for (const dn of dbNeeds) {
+        const charNeeds = replayed.needs[dn.char_lws_id];
+        if (!charNeeds || !charNeeds[dn.need_name]) {
+            throw new Error(`Character ${dn.char_lws_id} need ${dn.need_name} missing in replayed state`);
+        }
+        const rn = charNeeds[dn.need_name];
+        if (rn.satisfaction !== dn.satisfaction) {
+            throw new Error(`Character ${dn.char_lws_id} need ${dn.need_name} satisfaction drift: replayed=${rn.satisfaction}, db=${dn.satisfaction}`);
+        }
+        if (rn.decay_rate !== dn.decay_rate) {
+            throw new Error(`Character ${dn.char_lws_id} need ${dn.need_name} decay_rate drift: replayed=${rn.decay_rate}, db=${dn.decay_rate}`);
+        }
+    }
+
+    // 8. Compare Values (Phase 7)
+    const dbValues = db.prepare(`
+        SELECT v.*, sc.lws_id AS char_lws_id
+        FROM lws_character_values v
+        JOIN lws_simulation_characters sc ON v.simulation_character_id = sc.id
+        WHERE v.simulation_id = ?
+    `).all(sim.id);
+
+    for (const dv of dbValues) {
+        const charVals = replayed.values[dv.char_lws_id];
+        if (!charVals || !charVals[dv.dimension]) {
+            throw new Error(`Character ${dv.char_lws_id} value ${dv.dimension} missing in replayed state`);
+        }
+        const rv = charVals[dv.dimension];
+        if (rv.strength !== dv.strength) {
+            throw new Error(`Character ${dv.char_lws_id} value ${dv.dimension} strength drift: replayed=${rv.strength}, db=${dv.strength}`);
+        }
+    }
+
+    // 9. Compare Emotions (Phase 7)
+    const dbEmotions = db.prepare(`
+        SELECT e.*, sc.lws_id AS char_lws_id
+        FROM lws_character_emotions e
+        JOIN lws_simulation_characters sc ON e.simulation_character_id = sc.id
+        WHERE e.simulation_id = ?
+    `).all(sim.id);
+
+    for (const de of dbEmotions) {
+        const re = replayed.emotions[de.char_lws_id];
+        if (!re) {
+            throw new Error(`Character ${de.char_lws_id} emotion missing in replayed state`);
+        }
+        if (re.dominant_emotion !== de.dominant_emotion) {
+            throw new Error(`Character ${de.char_lws_id} emotion dominant_emotion drift: replayed=${re.dominant_emotion}, db=${de.dominant_emotion}`);
+        }
+        if (re.intensity !== de.intensity) {
+            throw new Error(`Character ${de.char_lws_id} emotion intensity drift: replayed=${re.intensity}, db=${de.intensity}`);
+        }
+        if (re.arousal !== de.arousal) {
+            throw new Error(`Character ${de.char_lws_id} emotion arousal drift: replayed=${re.arousal}, db=${de.arousal}`);
+        }
+        if (re.valence !== de.valence) {
+            throw new Error(`Character ${de.char_lws_id} emotion valence drift: replayed=${re.valence}, db=${de.valence}`);
+        }
+    }
+
+    // 10. Compare Intentions (Phase 7 Option B)
+    const dbIntentions = db.prepare(`
+        SELECT i.*, sc.lws_id AS char_lws_id, g.lws_id AS goal_lws_id
+        FROM lws_character_intentions i
+        JOIN lws_simulation_characters sc ON i.simulation_character_id = sc.id
+        LEFT JOIN lws_character_goals g ON i.goal_id = g.id
+        WHERE i.simulation_id = ?
+    `).all(sim.id);
+
+    for (const di of dbIntentions) {
+        const charIntentions = replayed.intentions[di.char_lws_id] || {};
+        const ri = charIntentions[di.lws_id];
+        if (!ri) {
+            throw new Error(`Intention ${di.lws_id} missing in replayed state`);
+        }
+        if (ri.action_type !== di.action_type) {
+            throw new Error(`Intention ${di.lws_id} action_type drift: replayed=${ri.action_type}, db=${di.action_type}`);
+        }
+        if (ri.status !== di.status) {
+            throw new Error(`Intention ${di.lws_id} status drift: replayed=${ri.status}, db=${di.status}`);
+        }
+        if (ri.target_entity_type !== di.target_entity_type) {
+            throw new Error(`Intention ${di.lws_id} target_entity_type drift: replayed=${ri.target_entity_type}, db=${di.target_entity_type}`);
+        }
+        if ((ri.target_entity_id || null) !== (di.target_entity_id || null)) {
+            throw new Error(`Intention ${di.lws_id} target_entity_id drift: replayed=${ri.target_entity_id}, db=${di.target_entity_id}`);
+        }
+        if (ri.priority !== di.priority) {
+            throw new Error(`Intention ${di.lws_id} priority drift: replayed=${ri.priority}, db=${di.priority}`);
+        }
+        if ((ri.failure_reason || null) !== (di.failure_reason || null)) {
+            throw new Error(`Intention ${di.lws_id} failure_reason drift: replayed=${ri.failure_reason}, db=${di.failure_reason}`);
+        }
+        if ((ri.cancellation_reason || null) !== (di.cancellation_reason || null)) {
+            throw new Error(`Intention ${di.lws_id} cancellation_reason drift: replayed=${ri.cancellation_reason}, db=${di.cancellation_reason}`);
+        }
+    }
+
     return {
         verified: true,
+        parity_matched: true,
+        differences: [],
         event_count: events.length,
         character_count: charCount,
         scheduled_event_count: replayedSchedCount,

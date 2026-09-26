@@ -16,9 +16,9 @@ describe('LWS Database Foundation and Migrations', () => {
         }
     });
 
-    test('applies migrations 001, 002, 003, 004, 005, and 006 and sets PRAGMA user_version to 6', () => {
+    test('applies migrations 001, 002, 003, 004, 005, 006, and 007 and sets PRAGMA user_version to 7', () => {
         const userVersion = memoryDb.pragma('user_version', { simple: true });
-        expect(userVersion).toBe(6);
+        expect(userVersion).toBe(7);
     });
 
     test('creates lws_meta table and stores initialized_at metadata', () => {
@@ -34,7 +34,7 @@ describe('LWS Database Foundation and Migrations', () => {
         expect(row.value.length).toBeGreaterThan(0);
     });
 
-    test('creates all 9 Phase 2 authored tables', () => {
+    test('creates all 9 Phase 2 authored tables and 5 Phase 7 tables', () => {
         const tables = memoryDb.prepare('SELECT name FROM sqlite_master WHERE type=\'table\'').all();
         const tableNames = tables.map(t => t.name);
 
@@ -49,6 +49,11 @@ describe('LWS Database Foundation and Migrations', () => {
             'lws_scenarios',
             'lws_scenario_characters',
             'lws_authored_prompt_configs',
+            'lws_character_needs',
+            'lws_character_goals',
+            'lws_character_intentions',
+            'lws_character_values',
+            'lws_character_emotions',
         ];
 
         for (const t of expectedTables) {
@@ -82,14 +87,15 @@ describe('LWS Database Foundation and Migrations', () => {
 
     test('migrations are idempotent and do not fail or alter version when re-executed', () => {
         const versionBefore = memoryDb.pragma('user_version', { simple: true });
-        expect(versionBefore).toBe(6);
+        expect(versionBefore).toBe(7);
 
         const versionAfter = runMigrations(memoryDb);
-        expect(versionAfter).toBe(6);
+        expect(versionAfter).toBe(7);
 
         const count = memoryDb.prepare('SELECT COUNT(*) as cnt FROM lws_meta').get();
         expect(count.cnt).toBe(1);
     });
+
 
     test('enforces PRAGMA foreign_keys = ON on authored tables', () => {
         const fk = memoryDb.pragma('foreign_keys', { simple: true });
@@ -124,7 +130,7 @@ describe('LWS Database Foundation and Migrations', () => {
             // Reopen the same file
             const reopenedDb = new Database(dbPath);
             const userVersion = reopenedDb.pragma('user_version', { simple: true });
-            expect(userVersion).toBe(6);
+            expect(userVersion).toBe(7);
 
             const row = reopenedDb.prepare('SELECT value FROM lws_meta WHERE key = ?').get('test_key');
             expect(row?.value).toBe('test_val');

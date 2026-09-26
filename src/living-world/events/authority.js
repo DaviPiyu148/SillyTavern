@@ -1,6 +1,6 @@
 import { LwsNotFoundError, LwsConflictError, LwsAuthorityError } from '../errors.js';
 import { EVENT_TYPES, validateProposalSchema } from './taxonomy.js';
-import { validateFictionalTimestamp } from '../simulations/common.js';
+import { validateFictionalTimestamp, safeJsonParse } from '../simulations/common.js';
 
 /**
  * Executes Stages 1, 2, and 3 of the LWS Authority Pipeline.
@@ -246,6 +246,35 @@ export function evaluateAuthority(db, sim, proposal, callerContext = {}) {
     } else if (proposal.event_type === EVENT_TYPES.TRANSFER_ITEM || proposal.event_type === EVENT_TYPES.COMBAT_ACTION) {
         if (actorRow.current_location_id !== targetRow.current_location_id || actorRow.current_location_id !== locationInternalId) {
             throw new LwsAuthorityError(`Actor and target must be collocated at the event location for ${proposal.event_type}`, 'SPATIAL_DISCONNECT');
+        }
+    }
+
+    // 5. Resource / Prerequisite Authority (§8.2, §9.2)
+    if (proposal.event_type === EVENT_TYPES.CONSUME_ITEM) {
+        const itemId = payload.item_id ?? proposal.target_entity_id;
+        if (itemId != null) {
+            const requiredQty = payload.quantity ?? 1;
+            const runtimeState = typeof actorRow?.runtime_state === 'string'
+                ? safeJsonParse(actorRow.runtime_state, {})
+                : (actorRow?.runtime_state || {});
+            const inventory = Array.isArray(runtimeState.inventory) ? runtimeState.inventory : [];
+            const item = inventory.find(i => String(i.id) === String(itemId) || String(i.name) === String(itemId));
+            if (!item || (typeof item.quantity === 'number' && item.quantity < requiredQty)) {
+                throw new LwsAuthorityError(`Item '${itemId}' not available in actor inventory`, 'PREREQUISITE_FAILED');
+            }
+        }
+    } else if (proposal.event_type === EVENT_TYPES.TRANSFER_ITEM) {
+        const itemId = payload.item_id ?? proposal.target_entity_id;
+        if (itemId != null) {
+            const requiredQty = payload.quantity ?? 1;
+            const runtimeState = typeof actorRow?.runtime_state === 'string'
+                ? safeJsonParse(actorRow.runtime_state, {})
+                : (actorRow?.runtime_state || {});
+            const inventory = Array.isArray(runtimeState.inventory) ? runtimeState.inventory : [];
+            const item = inventory.find(i => String(i.id) === String(itemId) || String(i.name) === String(itemId));
+            if (!item || (typeof item.quantity === 'number' && item.quantity < requiredQty)) {
+                throw new LwsAuthorityError(`Item '${itemId}' not available in actor inventory`, 'PREREQUISITE_FAILED');
+            }
         }
     }
 
