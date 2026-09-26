@@ -24,7 +24,8 @@
     - `2173a757c36c01f6a9ecb05a1e03a4fe629fb247` — initial Phase 11 planning artifact (*LOCAL / UNPUBLISHED*);
     - `73e6e79a40232cb81733c187f6cb6e229c4f50a2` — architecture and schema audit update (*LOCAL / UNPUBLISHED*);
     - `2d6d9f5d96baae55a3110479d5218bc5a92cc41c` — finalized Phase 11 planning artifact for review (*LOCAL / UNPUBLISHED*);
-    - `c2fba72293d72d97aa28a3c02c1871eda9d65b22` — frozen Phase 11 planning artifact across all 17 audit criteria (*LOCAL / UNPUBLISHED*).
+    - `c2fba72293d72d97aa28a3c02c1871eda9d65b22` — frozen Phase 11 planning artifact across all 17 audit criteria (*LOCAL / UNPUBLISHED*);
+    - `58359bd6ca7a60a11b7f8941c753245886018293` — final corrective freeze pass on planning specification (*LOCAL / UNPUBLISHED*).
   - All Phase 11 planning revisions remain strictly local to the working branch until formally pushed following user authorization.
 
 ---
