@@ -3,7 +3,7 @@
  */
 
 import { getDb } from '../db.js';
-import { LwsNotFoundError, LwsValidationError } from '../errors.js';
+import { LwsNotFoundError, LwsValidationError, LwsInvalidStateTransitionError } from '../errors.js';
 import { ensureActiveSimulation, safeJsonParse, isValidUuid } from '../simulations/common.js';
 import {
     GENERATION_MODES,
@@ -98,23 +98,42 @@ export function buildPromptContext(simLwsId, options = {}) {
     let coLocatedCharacters = [];
     let ambientEntities = [];
 
+    let charSnapshot = null;
+
     if (charLwsId) {
         if (!isValidUuid(charLwsId)) {
             throw new LwsValidationError(`Invalid character UUID: ${charLwsId}`, ['characterLwsId']);
         }
 
         charRow = db.prepare(`
-            SELECT sc.*, c.name, c.description, c.personality, c.scenario_context, c.tags,
-                   c.lws_id AS authored_character_lws_id,
+            SELECT sc.*,
                    loc.lws_id AS location_lws_id, loc.name AS location_name, loc.description AS location_description
             FROM lws_simulation_characters sc
-            JOIN lws_characters c ON sc.character_id = c.id
             LEFT JOIN lws_locations loc ON sc.current_location_id = loc.id
-            WHERE (sc.lws_id = ? OR c.lws_id = ?) AND sc.simulation_id = ? AND sc.deleted_at IS NULL
+            WHERE (sc.lws_id = ? OR sc.character_id = (SELECT id FROM lws_characters WHERE lws_id = ?))
+              AND sc.simulation_id = ? AND sc.deleted_at IS NULL
         `).get(charLwsId, charLwsId, sim.id);
 
         if (!charRow) {
             throw new LwsNotFoundError(`Character ${charLwsId} not found in this simulation`);
+        }
+
+        // Unpack and validate authored_snapshot (fail-closed)
+        try {
+            if (typeof charRow.authored_snapshot === 'string') {
+                charSnapshot = JSON.parse(charRow.authored_snapshot);
+            } else if (typeof charRow.authored_snapshot === 'object' && charRow.authored_snapshot !== null) {
+                charSnapshot = charRow.authored_snapshot;
+            }
+        } catch {
+            charSnapshot = null;
+        }
+
+        if (!charSnapshot || typeof charSnapshot !== 'object' || Array.isArray(charSnapshot) || !charSnapshot.name) {
+            throw new LwsInvalidStateTransitionError(
+                `Simulation character ${charRow.lws_id} has missing or corrupt authored_snapshot; prompt construction aborted to prevent mutable state drift`,
+                ['authored_snapshot']
+            );
         }
 
         charTier = db.prepare(`
@@ -165,16 +184,23 @@ export function buildPromptContext(simLwsId, options = {}) {
         `).all(charRow.id);
 
         // Outgoing Relationships (STRICT: only source = charRow.id)
-        charRelationships = db.prepare(`
+        const relRows = db.prepare(`
             SELECT r.trust, r.affection, r.familiarity, r.respect, r.loyalty, r.last_interaction_fictional_time,
-                   target_sc.lws_id AS target_char_lws_id, target_c.name AS target_char_name
+                   target_sc.lws_id AS target_char_lws_id, target_sc.authored_snapshot AS target_snapshot
             FROM lws_character_relationships r
             JOIN lws_simulation_characters target_sc ON r.target_character_id = target_sc.id
-            JOIN lws_characters target_c ON target_sc.character_id = target_c.id
             WHERE r.simulation_id = ? AND r.source_character_id = ? AND r.deleted_at IS NULL
             ORDER BY r.familiarity DESC
             LIMIT 10
         `).all(sim.id, charRow.id);
+
+        charRelationships = relRows.map(r => {
+            const targetSnap = safeJsonParse(r.target_snapshot, {});
+            return {
+                ...r,
+                target_char_name: targetSnap.name || 'Unknown Character',
+            };
+        });
 
         // Faction Memberships (STRICT: only for this character)
         charFactionMemberships = db.prepare(`
@@ -222,12 +248,21 @@ export function buildPromptContext(simLwsId, options = {}) {
             sensoryClarity = calculateSensoryClarity(locationEnv || {}, locationOps || {});
 
             // Co-located active characters
-            coLocatedCharacters = db.prepare(`
-                SELECT sc.lws_id, c.name, sc.activity, sc.physical_condition
+            const coLocRows = db.prepare(`
+                SELECT sc.lws_id, sc.authored_snapshot, sc.activity, sc.physical_condition
                 FROM lws_simulation_characters sc
-                JOIN lws_characters c ON sc.character_id = c.id
                 WHERE sc.simulation_id = ? AND sc.current_location_id = ? AND sc.id != ? AND sc.deleted_at IS NULL
             `).all(sim.id, charRow.current_location_id, charRow.id);
+
+            coLocatedCharacters = coLocRows.map(c => {
+                const cSnap = safeJsonParse(c.authored_snapshot, {});
+                return {
+                    lws_id: c.lws_id,
+                    name: cSnap.name || 'Unknown',
+                    activity: c.activity,
+                    physical_condition: c.physical_condition,
+                };
+            });
 
             // Ambient crowd estimate
             try {
@@ -359,15 +394,15 @@ export function buildPromptContext(simLwsId, options = {}) {
     };
 
     // Layer 5: Character Authored Profile
-    if (charRow) {
+    if (charRow && charSnapshot) {
         const profileLines = [
-            `[CHARACTER PROFILE: ${charRow.name}]`,
+            `[CHARACTER PROFILE: ${charSnapshot.name}]`,
             `LWS ID: ${charRow.lws_id}`,
-            `Personality: ${charRow.personality || 'Not specified'}`,
+            `Personality: ${charSnapshot.personality || 'Not specified'}`,
         ];
-        if (charRow.description) profileLines.push(`Description: ${charRow.description}`);
-        if (charRow.scenario_context) profileLines.push(`Scenario Context: ${charRow.scenario_context}`);
-        const tags = safeJsonParse(charRow.tags, []);
+        if (charSnapshot.description) profileLines.push(`Description: ${charSnapshot.description}`);
+        if (charSnapshot.scenario_context) profileLines.push(`Scenario Context: ${charSnapshot.scenario_context}`);
+        const tags = Array.isArray(charSnapshot.tags) ? charSnapshot.tags : safeJsonParse(charSnapshot.tags, []);
         if (tags.length > 0) profileLines.push(`Tags: ${tags.join(', ')}`);
         layers[PROMPT_LAYERS.CHARACTER_AUTHORED_PROFILE] = {
             name: 'Character Authored Profile',
@@ -555,8 +590,8 @@ export function buildPromptContext(simLwsId, options = {}) {
     return {
         simulation_id: sim.lws_id,
         character_id: charRow?.lws_id ?? null,
-        authored_character_id: charRow?.authored_character_lws_id ?? null,
-        character_name: charRow?.name ?? null,
+        authored_character_id: charSnapshot?.lws_id ?? (charRow ? (db.prepare('SELECT lws_id FROM lws_characters WHERE id = ?').get(charRow.character_id)?.lws_id ?? null) : null),
+        character_name: charSnapshot?.name ?? null,
         generation_mode: mode,
         output_contract_type: outputContractType,
         layers,
