@@ -37,7 +37,7 @@ Phase 13 delivers subsystem hardening, hot SQLite online backup, health and diag
 - **Storage Metrics:** Reports database file size, page count, and table row counts.
 
 ### 3. Public Health & Observability (`src/living-world/hardening/health.js`)
-- **Sanitized Liveness Probe:** Public `GET /health` endpoint exposes high-level operational status (`status: "ok"`, `schema_version: 9`, `uptime_seconds`, `active_simulations_count`, `memory_mb`) without leaking entity details, world names, file paths, or sensitive diagnostics.
+- **Sanitized Liveness Probe:** Public `GET /health` endpoint exposes high-level operational status (`status: "healthy"`, `schema_version: 9`, `uptime_seconds`, `active_simulations_count`, `memory_mb`) without leaking entity details, world names, file paths, or sensitive diagnostics.
 
 ### 4. Administrative Authorization & Security Boundaries (`src/endpoints/living-world.js`)
 - **Admin-Gated Endpoints:** `GET /diagnostics` and `POST /admin/backup` enforce administrative privileges (`checkAdminAuth`), returning HTTP 401 for unauthenticated callers and HTTP 403 for non-admin accounts.

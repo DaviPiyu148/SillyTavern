@@ -42,7 +42,7 @@ Implemented complete hardening, hot backup, health/diagnostics observability, re
    - `index.js`: Exported hardening subsystem modules.
 
 2. **REST API Extensions & Authorization (`src/endpoints/living-world.js`):**
-   - `GET /health`: Public unauthenticated liveness probe returning `status: "ok"`, `schema_version: 9`, `uptime_seconds`, `active_simulations_count`, `memory_mb`.
+   - `GET /health`: Public unauthenticated liveness probe returning `status: "healthy"` (or `"degraded"` / `"unavailable"`), `schema_version: 9`, `uptime_seconds`, `active_simulations_count`, `memory_mb`.
    - `GET /diagnostics`: Admin-gated endpoint reporting catalog counts, integrity status, and table statistics.
    - `POST /admin/backup`: Admin-gated endpoint triggering online database backup with optional destination filename and retention override.
    - Enforced `checkAdminAuth` middleware returning 401 for unauthenticated and 403 for non-admin callers.
