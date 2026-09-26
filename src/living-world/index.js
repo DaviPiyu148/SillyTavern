@@ -136,5 +136,6 @@ export * from './import/freeform-importer.js';
 export * from './import/ai-normalizer.js';
 export * from './import/conflicts.js';
 export * from './import/authoring.js';
+export * from './hardening/index.js';
 
 

@@ -79,4 +79,16 @@ export class LwsInvalidStateTransitionError extends LwsError {
     }
 }
 
+export class LwsBackupError extends LwsError {
+    /**
+     * @param {string} message
+     * @param {string} [code]
+     */
+    constructor(message = 'Database backup failed', code = 'BACKUP_ERROR') {
+        super(message);
+        this.name = 'LwsBackupError';
+        this.code = code;
+    }
+}
+
 

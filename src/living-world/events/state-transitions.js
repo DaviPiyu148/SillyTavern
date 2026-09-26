@@ -103,6 +103,58 @@ export const STATE_TRANSITIONS = {
             WHERE id = ? AND simulation_id = ?
         `).run(JSON.stringify(mergedJson), eventCreatedAt, evaluated.actor_internal_id, sim.id);
 
+        if (evaluated.payload?.cognition) {
+            const cog = evaluated.payload.cognition;
+            if (cog.create_goal && evaluated.actor_internal_id) {
+                const cg = cog.create_goal;
+                const goalLwsId = cg.lws_id || generateUuid();
+                db.prepare(`
+                    INSERT INTO lws_character_goals (
+                        lws_id, simulation_id, simulation_character_id, client_goal_key,
+                        title, description, goal_type, status, priority, urgency, progress,
+                        objective_action_type, causal_event_id, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, NULL, ?, ?)
+                `).run(
+                    goalLwsId,
+                    sim.id,
+                    evaluated.actor_internal_id,
+                    cg.client_goal_key || null,
+                    cg.title || 'Goal',
+                    cg.description || '',
+                    cg.goal_type || 'short_term',
+                    cg.priority ?? 50,
+                    cg.urgency ?? 50,
+                    cg.progress ?? 0,
+                    cg.objective_action_type || null,
+                    eventCreatedAt,
+                    eventCreatedAt,
+                );
+            }
+            if (cog.needs && evaluated.actor_internal_id) {
+                for (const [needName, needData] of Object.entries(cog.needs)) {
+                    if (needData.satisfaction !== undefined && needData.decay_rate !== undefined) {
+                        db.prepare(`
+                            UPDATE lws_character_needs
+                            SET satisfaction = ?, decay_rate = ?, updated_at = ?
+                            WHERE simulation_character_id = ? AND need_name = ?
+                        `).run(needData.satisfaction, needData.decay_rate, eventCreatedAt, evaluated.actor_internal_id, needName);
+                    } else if (needData.satisfaction !== undefined) {
+                        db.prepare(`
+                            UPDATE lws_character_needs
+                            SET satisfaction = ?, updated_at = ?
+                            WHERE simulation_character_id = ? AND need_name = ?
+                        `).run(needData.satisfaction, eventCreatedAt, evaluated.actor_internal_id, needName);
+                    } else if (needData.decay_rate !== undefined) {
+                        db.prepare(`
+                            UPDATE lws_character_needs
+                            SET decay_rate = ?, updated_at = ?
+                            WHERE simulation_character_id = ? AND need_name = ?
+                        `).run(needData.decay_rate, eventCreatedAt, evaluated.actor_internal_id, needName);
+                    }
+                }
+            }
+        }
+
         if (evaluated.payload?.social || evaluated.payload?.social_state) {
             const soc = evaluated.payload.social || evaluated.payload.social_state;
             if (soc.relationship_update && evaluated.actor_internal_id) {

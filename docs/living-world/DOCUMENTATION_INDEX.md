@@ -17,6 +17,7 @@
 | `IMPORT_AND_NORMALIZATION.md` | Importing ST cards/world info/freeform content |
 | `PHASE_11_PLAN.md` | Phase 11 planning artifact for Import, Normalization, and Authoring Workflow |
 | `PHASE_12_PLAN.md` | Phase 12 planning artifact for Native SillyTavern User Workflow and UI |
+| `PHASE_13_PLAN.md` | Phase 13 planning artifact for Replay, Hardening, Release Readiness, and Long-Run Verification |
 | `SECURITY.md` | Trust boundaries and security invariants |
 | `REPOSITORY_STRUCTURE.md` | Where LWS code/data/tests/docs belong |
 | `DEVELOPMENT_WORKFLOW.md` | How an AI agent should implement changes |
@@ -41,6 +42,7 @@
 - `ADR-018`: Prompt, Context, Perspective Isolation, and SillyTavern Generation Integration (Phase 10).
 - `ADR-019`: Import, Normalization, Provenance, and Authored Creation Workflow (Phase 11).
 - `ADR-020`: Native SillyTavern User Workflow and UI Architecture (Phase 12).
+- `ADR-021`: Replay, Hardening, Release Readiness, and Long-Run Verification (Phase 13).
 
 ## Task routing
 

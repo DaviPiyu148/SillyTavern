@@ -28,6 +28,79 @@ Tests/checks and result.
 Known limitations or implications.
 ```
 
+## 2026-09-27 — Phase 13: Replay, Hardening, Release Readiness, and Long-Run Verification
+
+Status: IMPLEMENTED / VERIFIED / ACCEPTED
+
+### Change
+Implemented complete hardening, hot backup, health/diagnostics observability, replay parity verification, and long-horizon simulation continuity:
+
+1. **Hardening & Online Database Backup (`src/living-world/hardening/`):**
+   - `backup.js`: Hot online SQLite backup using `better-sqlite3` `.backup()` API; pre-resolution path validation rejecting traversal sequences, drive prefixes, and separators; canonical containment in `data/living-world/backups/`; retention rotation preserving `MIN_RETAINED_BACKUPS = 1` invariant; protection of live database files.
+   - `diagnostics.js`: Database catalog verification (36 user tables, 106 triggers, 61 user indexes); `PRAGMA integrity_check` and `PRAGMA foreign_key_check`; referential orphan entity checks; table row counts.
+   - `health.js`: Sanitized public liveness probe (`GET /health`) returning high-level operational status without leaking entity or path information.
+   - `index.js`: Exported hardening subsystem modules.
+
+2. **REST API Extensions & Authorization (`src/endpoints/living-world.js`):**
+   - `GET /health`: Public unauthenticated liveness probe returning `status: "ok"`, `schema_version: 9`, `uptime_seconds`, `active_simulations_count`, `memory_mb`.
+   - `GET /diagnostics`: Admin-gated endpoint reporting catalog counts, integrity status, and table statistics.
+   - `POST /admin/backup`: Admin-gated endpoint triggering online database backup with optional destination filename and retention override.
+   - Enforced `checkAdminAuth` middleware returning 401 for unauthenticated and 403 for non-admin callers.
+   - Updated `handleRouteError` to map `LwsBackupError` with code `DATABASE_BUSY` to HTTP 503 and general failures to HTTP 500.
+
+3. **Cognition State Transition Enhancements (`src/living-world/events/state-transitions.js`):**
+   - Added support for `payload.cognition.create_goal` and `payload.cognition.needs` in `UPDATE_RUNTIME_STATE` state transitions for full database-to-replay parity.
+
+4. **Dedicated Verification Suites (`tests/living-world/lws-hardening-*.test.js`):**
+   - `lws-hardening-migration-durability.test.js`: 4 tests verifying sequential migrations 001-009, schema catalog counts (36 tables, 106 triggers, 61 indexes), idempotency, and target version step-wise execution.
+   - `lws-hardening-persistence-backup.test.js`: 4 tests verifying pre-resolution filename validation, uncorrupted backup creation, retention rotation, and transaction rollback durability.
+   - `lws-hardening-replay-full-lifecycle.test.js`: 2 tests verifying 100% 21-facet database parity across all 29 event types, and long event sequence replay (1000+ events) with zero drift.
+   - `lws-hardening-failure-recovery.test.js`: 3 tests verifying rejected narrative turn durable persistence, lock contention sequencing, and exception recovery.
+   - `lws-hardening-longrun-continuity.test.js`: 3 tests verifying 14-day timeline advance (1,209,600s), 30-day asymmetric familiarity decay ($\tau = 30\text{ days}$), and hyperbolic emotion decay ($\tau = 14,400\text{s}$).
+   - `lws-hardening-security-boundaries.test.js`: 5 tests verifying UUID format enforcement, prototype pollution protection, path traversal rejection, epistemic spatial isolation, and prompt injection quarantine.
+   - `lws-hardening-diagnostics-health.test.js`: 3 tests verifying sanitized public `/health`, admin-gated `/diagnostics`, and admin-gated `/admin/backup`.
+
+### Reason
+Complete the final planned roadmap phase (Phase 13) to establish system durability, backup reliability, operational observability, security boundaries, and proven 100% deterministic replay parity for release readiness.
+
+### Files/modules
+- Created:
+  - `src/living-world/hardening/backup.js`
+  - `src/living-world/hardening/diagnostics.js`
+  - `src/living-world/hardening/health.js`
+  - `src/living-world/hardening/index.js`
+  - `tests/living-world/lws-hardening-migration-durability.test.js`
+  - `tests/living-world/lws-hardening-persistence-backup.test.js`
+  - `tests/living-world/lws-hardening-replay-full-lifecycle.test.js`
+  - `tests/living-world/lws-hardening-failure-recovery.test.js`
+  - `tests/living-world/lws-hardening-longrun-continuity.test.js`
+  - `tests/living-world/lws-hardening-security-boundaries.test.js`
+  - `tests/living-world/lws-hardening-diagnostics-health.test.js`
+  - `docs/living-world/decisions/ADR-021-replay-hardening-release-readiness.md`
+- Modified:
+  - `src/living-world/errors.js`
+  - `src/living-world/index.js`
+  - `src/living-world/events/state-transitions.js`
+  - `src/endpoints/living-world.js`
+  - `docs/living-world/PROJECT_STATE.md`
+  - `docs/living-world/DOCUMENTATION_INDEX.md`
+  - `docs/living-world/AI_CHANGELOG.md`
+
+### Architecture
+- Preserved native in-process SillyTavern architecture and `PRAGMA user_version = 9` (zero migrations).
+- Hot SQLite online backup operates without taking simulation offline or corrupting WAL journal.
+- Replay reducer remains pure in-memory, zero-SQL, and zero-LLM.
+- Administrative routes strictly gated by server-side authentication and authorization.
+
+### Tests
+- Phase 13 dedicated suites: 7 suites / 24 tests passing (100%).
+- Living World subsystem cumulative: 92 suites / 620 tests passing (100%).
+- Full SillyTavern repository cumulative: 111 suites / 1031 tests passing (100%).
+- Browser automation: 0 tests (prohibition strictly maintained).
+
+### Notes
+Phase 13 completes all 13 planned development phases of the Living World Simulator subsystem.
+
 ## 2026-09-26 — Phase 12: Native SillyTavern User Workflow and UI
 
 Status: IMPLEMENTED / VERIFIED / ACCEPTED

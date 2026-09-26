@@ -8,6 +8,7 @@ import {
     LwsAuthorityError,
     LwsTurnRejectedError,
     LwsInvalidStateTransitionError,
+    LwsBackupError,
     createWorld,
     getWorldByLwsId,
     listWorlds,
@@ -140,6 +141,9 @@ import {
     previewImport,
     commitImport,
     CONFLICT_POLICIES,
+    getHealthStatus,
+    getSystemDiagnostics,
+    backupDatabase,
 } from '../living-world/index.js';
 import { isValidUuid, generateUuid } from '../living-world/authored/common.js';
 import multer from 'multer';
@@ -182,11 +186,35 @@ function handleRouteError(err, res, routeName) {
         }
         return res.status(422).json({ error: err.message, code: err.code, fields: err.fields ?? [] });
     }
+    if (err instanceof LwsBackupError) {
+        if (err.code === 'DATABASE_BUSY') {
+            return res.status(503).json({ error: err.message, code: err.code });
+        }
+        return res.status(500).json({ error: err.message, code: err.code });
+    }
     if (err instanceof LwsTurnRejectedError) {
         return res.status(422).json(err.turn);
     }
     console.error(`[LWS API] Unexpected error in ${routeName}:`, err.message);
     return res.status(500).json({ error: 'Internal error' });
+}
+
+/**
+ * Verifies admin authorization for administrative endpoints.
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @returns {boolean}
+ */
+function checkAdminAuth(req, res) {
+    if (req.user === false) {
+        res.status(401).json({ error: 'Authentication required' });
+        return false;
+    }
+    if (req.user && req.user.profile && req.user.profile.admin !== true) {
+        res.status(403).json({ error: 'Admin authorization required' });
+        return false;
+    }
+    return true;
 }
 
 /**
@@ -2668,6 +2696,52 @@ router.get('/worlds/:worldLwsId/export/manifest', (req, res) => {
         return res.status(200).json(manifest);
     } catch (err) {
         return handleRouteError(err, res, 'GET /worlds/:worldLwsId/export/manifest');
+    }
+});
+
+// ============================================================================
+// PHASE 13 — OBSERVABILITY, DIAGNOSTICS & HARDENING ROUTES
+// ============================================================================
+
+// 1. GET /health (Public Liveness Probe)
+router.get('/health', (req, res) => {
+    try {
+        const health = getHealthStatus();
+        if (health.status === 'unavailable') {
+            return res.status(503).json(health);
+        }
+        return res.status(200).json(health);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /health');
+    }
+});
+
+// 2. GET /diagnostics (Admin-Gated Integrity Inspection)
+router.get('/diagnostics', (req, res) => {
+    if (!checkAdminAuth(req, res)) return;
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    try {
+        const diagnostics = getSystemDiagnostics();
+        return res.status(200).json(diagnostics);
+    } catch (err) {
+        return handleRouteError(err, res, 'GET /diagnostics');
+    }
+});
+
+// 3. POST /admin/backup (Admin-Gated Hot Database Backup)
+router.post('/admin/backup', async (req, res) => {
+    if (!checkAdminAuth(req, res)) return;
+    if (!isLwsAvailable()) return res.status(503).json({ error: 'Living World subsystem is unavailable' });
+    try {
+        const body = req.body || {};
+        const result = await backupDatabase({
+            destination_filename: body.destination_filename,
+            max_count: body.max_count,
+            max_age_days: body.max_age_days,
+        });
+        return res.status(200).json(result);
+    } catch (err) {
+        return handleRouteError(err, res, 'POST /admin/backup');
     }
 });
 
