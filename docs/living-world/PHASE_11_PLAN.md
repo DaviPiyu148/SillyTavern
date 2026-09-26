@@ -2,50 +2,57 @@
 
 ## Status
 
-**READY FOR USER REVIEW**
+**READY FOR USER REVIEW / IMPLEMENTATION NOT AUTHORIZED**
 
 > [!IMPORTANT]
 > **Implementation Authorization Gate:**
-> Phase 11 implementation is **NOT** authorized by this planning task. Explicit user authorization of this completed planning document is required before implementation begins.
+> Phase 11 implementation is **NOT** authorized by this planning task. Explicit user authorization of this completed and frozen planning document is required before implementation begins.
 
 ---
 
-## 1. Planning Metadata & Repository State
+## 1. Planning Metadata, Git State, and Baseline Reconciliation
 
 - **Target Subsystem:** Living World Simulator (LWS) Native Subsystem
 - **Host Fork:** `DaviPiyu148/SillyTavern`, target branch `release`
-- **Current Schema Version:** `PRAGMA user_version = 9` (Migration 009 applied)
-- **Phase 10 Status:** `IMPLEMENTED, VERIFIED, ACCEPTED`
-- **Phase 11 Status in Project State:** `DESIGNED` (Not started)
-- **Planning Artifact Revision:** Final Corrective Audit
-- **Source Control State:** This planning document is committed to the local working branch `release` (commit `73e6e79a40232cb81733c187f6cb6e229c4f50a2` and predecessor `2173a757c36c01f6a9ecb05a1e03a4fe629fb247`), which is currently local/unpublished relative to `origin/release` (`63668f0a1bc6f4771eba343a07a94459835fe62a`).
+- **Current Database Schema Version:** `PRAGMA user_version = 9` (Migration `009_environment_and_population.js` applied)
+- **Phase 10 Status in Project State:** `IMPLEMENTED, VERIFIED, ACCEPTED` (Formally verified, accepted by user on 2026-09-26, and recorded in [PROJECT_STATE.md](file:///D:/SillyTavern/docs/living-world/PROJECT_STATE.md#L60) and [AI_CHANGELOG.md](file:///D:/SillyTavern/docs/living-world/AI_CHANGELOG.md#L5)).
+- **Phase 11 Status in Project State:** `DESIGNED` (Roadmap defined in [PHASE_DEVELOPMENT_PLAN.md](file:///D:/SillyTavern/docs/living-world/PHASE_DEVELOPMENT_PLAN.md#L286-L298); implementation not started).
+- **Planning Artifact Revision:** Final Corrective Freeze Specification.
+- **Git State & Remote Baseline Reconciliation:**
+  - **Remote Published Baseline:** Commit `63668f0a1bc6f4771eba343a07a94459835fe62a` on `origin/release`.
+  - **Local Unpublished Commits on Branch `release`:**
+    - `2173a757c36c01f6a9ecb05a1e03a4fe629fb247` — initial Phase 11 planning artifact (*LOCAL / UNPUBLISHED*);
+    - `73e6e79a40232cb81733c187f6cb6e229c4f50a2` — architecture and schema audit update (*LOCAL / UNPUBLISHED*);
+    - `2d6d9f5d96baae55a3110479d5218bc5a92cc41c` — finalized Phase 11 planning artifact for review (*LOCAL / UNPUBLISHED*).
+  - All Phase 11 planning revisions remain strictly local to the working branch until formally pushed following authorization.
 
 ---
 
 ## 2. Phase Goal
 
-Make existing SillyTavern and AI-RP content (Character Cards V1/V2/V3 in PNG/JSON, World Info / Lorebooks, Canonical LWS World Manifests, and Freeform text) fully usable in the Living World Simulator (LWS) by establishing a deterministic, provenance-preserving normalization pipeline, robust conflict detection, an AI-assisted normalization option, and a comprehensive authored bundle workflow—while strictly preserving the architectural boundary that external and model-generated content is untrusted and never directly mutates runtime simulation state.
+Make existing SillyTavern and AI-RP content (Character Cards V1/V2/V3 in PNG/JSON, World Info / Lorebooks, Canonical LWS World Manifests, and Freeform text) fully usable in the Living World Simulator (LWS) by establishing a deterministic, provenance-preserving normalization pipeline, robust conflict detection and disambiguation, an AI-assisted normalization option, and a comprehensive authored bundle workflow—while strictly preserving the architectural boundary that external and model-generated content is untrusted and never directly mutates runtime simulation state.
 
 ---
 
 ## 3. Scope Distinction: Original Roadmap vs. Implementation-Level Design Enhancements
 
-To maintain complete architectural transparency, Phase 11 distinguishes original roadmap requirements from implementation-level design enhancements:
+To maintain complete architectural transparency and preserve historical provenance, Phase 11 distinguishes original roadmap requirements from implementation-level design enhancements:
 
 ### 3.1 Original Roadmap Scope (from `PHASE_DEVELOPMENT_PLAN.md`)
-- Character Card import;
-- World Info / lorebook import;
-- Freeform world / scenario import;
-- AI-assisted normalization;
-- Provenance preservation;
-- Conflict detection;
-- Review / confirmation for ambiguous transformations;
-- Authored world / character creation workflow.
+- **Character Card Import:** Parsing and normalizing SillyTavern character cards into authored characters.
+- **World Info / Lorebook Import:** Parsing and classifying lorebook entries into authored world components.
+- **Freeform World / Scenario Import:** Ingesting unstructured outlines and world descriptions.
+- **AI-Assisted Normalization:** Leveraging model generation to propose structured authored entities from unstructured text.
+- **Provenance Preservation:** Tracking original source, version, format, mappings, and unmapped fields.
+- **Conflict Detection:** Detecting identity collisions against active authored records.
+- **Review / Confirmation:** Providing dry-run previews with ambiguity flags before committing changes.
+- **Authored World / Character Creation Workflow:** Establishing multi-entity authored creation and validation.
 
 ### 3.2 Implementation-Level Design Enhancements
-- **Enhancement A — Canonical LWS World Manifest (`lws_world_manifest_v1`):** A formalized multi-entity JSON/YAML interchange specification enabling atomic, lossless export and import of complete Worlds with hierarchical locations, factions, rules, scenarios, ambient archetypes, and prompt configs.
+- **Enhancement A — Canonical LWS World Manifest (`lws_world_manifest_v1`):** A formalized multi-entity JSON (with optional YAML) interchange specification enabling atomic, semantic/relationally lossless export and import of complete Worlds with hierarchical locations, factions, rules, scenarios, ambient archetypes, and prompt configs.
 - **Enhancement B — Full V1/V2/V3 PNG Chunk Extraction:** Reusing SillyTavern host infrastructure to extract both `ccv3` and `chara` PNG `tEXt` chunks with precedence ordering.
 - **Enhancement C — TOCTOU Stale-Preview Defense:** Transaction-level re-validation preventing race conditions between advisory preview and final commit.
+- **Enhancement D — Symmetric World Export Endpoint:** Providing `GET /api/living-world/worlds/:worldLwsId/export/manifest` as the symmetric pairing to manifest import for round-trip validation.
 
 ---
 
@@ -92,19 +99,19 @@ The repository database schema was inspected in `src/living-world/migrations/002
 
 ### 6.2 Stable Provenance Keys Architecture
 
-To guarantee lossless provenance without database schema changes:
-1. **Entities with Dedicated `extensions` Column:**
-   - `lws_worlds`, `lws_characters`, `lws_locations`, `lws_factions`, `lws_scenarios`, `lws_authored_prompt_configs` persist provenance directly in `extensions.provenance`.
-2. **Entities and Join Tables without `extensions` Column:**
+To guarantee complete, lossless provenance without database schema changes:
+1. **Primary Authored Tables with `extensions` Column (6 Tables):**
+   - `lws_worlds`, `lws_characters`, `lws_locations`, `lws_factions`, `lws_scenarios`, and `lws_authored_prompt_configs` persist provenance directly in their respective `extensions.provenance` JSON object.
+2. **Authored Tables & Join Tables without `extensions` Column (4 Tables):**
    - **`lws_world_rules`:** Keyed by public UUID `rule.lws_id` inside `lws_worlds.extensions.provenance.imported_components.world_rules[rule.lws_id]`.
    - **`lws_ambient_archetypes`:** Keyed by public UUID `archetype.lws_id` inside `lws_worlds.extensions.provenance.imported_components.ambient_archetypes[archetype.lws_id]`.
    - **`lws_character_factions` (Join Table):** Because join tables have no `lws_id`, provenance is keyed by stable composite public key `"${character_lws_id}:${faction_lws_id}"` inside `lws_worlds.extensions.provenance.imported_components.character_factions["${character_lws_id}:${faction_lws_id}"] = { role, source_entry, imported_at }`.
    - **`lws_scenario_characters` (Join Table):** Keyed by stable composite public key `"${scenario_lws_id}:${character_lws_id}"` inside `lws_worlds.extensions.provenance.imported_components.scenario_characters["${scenario_lws_id}:${character_lws_id}"] = { role, source_entry, imported_at }`.
 3. **Relationship Mutation & Re-Import Provenance:**
-   - Creation: Added to `imported_components` with creation timestamp and source reference.
-   - Deletion / Removal: Recorded in `lws_worlds.extensions.provenance.relationship_mutations: [{ type: 'character_faction_removed', character_lws_id, faction_lws_id, timestamp }]`.
-   - Replacement / Re-import: If relationship exists with identical role, logged as idempotent re-import; if role changed, updated and logged in mutation history.
-4. **Zero-Schema-Change Proof:** `PRAGMA user_version = 9` is preserved with zero migrations.
+   - **Creation:** Added to `imported_components` with creation timestamp and source reference.
+   - **Deletion / Removal:** Recorded in `lws_worlds.extensions.provenance.relationship_mutations: [{ type: 'character_faction_removed', character_lws_id, faction_lws_id, timestamp }]`.
+   - **Replacement / Re-import:** If relationship exists with identical role, logged as idempotent re-import; if role changed, updated and logged in mutation history.
+4. **Zero-Schema-Change Proof:** `PRAGMA user_version = 9` is strictly preserved with zero migrations.
 
 ---
 
@@ -130,22 +137,48 @@ flowchart TD
     Amb --> FlagAmb[Mark Candidate Ambiguous in Preview / Await User Selection]
 ```
 
-### 7.1 Category 1: Identity / Name Collisions
-Occurs when an imported entity matches the name of an existing active record (`deleted_at IS NULL`) in the target World.
-- **`REJECT` (Default):** Returns HTTP 409 Conflict with colliding entity details. 0 DB changes.
-- **`RENAME`:** Appends incremental disambiguation suffix: `Name (Import 2)`. Inserts new row with fresh UUID.
-- **`REPLACE`:** Soft-deletes existing active record (`deleted_at = isoNow()`). Inserts new record with fresh UUID.
-- **`MERGE`:** Non-destructive explicit field merge (detailed below).
+### 7.1 Formal Conflict Object Schema
+Every detected conflict produces a standardized conflict object:
+```json
+{
+  "conflict_id": "sha256(world_lws_id + conflict_type + candidate_id + target_id)",
+  "candidate_id": "uuid-v4-string",
+  "conflict_type": "IDENTITY_COLLISION_ACTIVE_NAME | IDENTITY_COLLISION_KEY | SEMANTIC_CONTRADICTION_FACT | SEMANTIC_CONTRADICTION_TOPOLOGY | CLASSIFICATION_AMBIGUITY | UNRESOLVED_FOREIGN_KEY",
+  "source_ref": {
+    "file": "string",
+    "entry_index": 0,
+    "entry_key": "string",
+    "chunk_name": "string"
+  },
+  "severity": "info | warning | blocking_error",
+  "blocking": true,
+  "colliding_entity": {
+    "id": 12,
+    "lws_id": "uuid-v4-string",
+    "name": "string",
+    "type": "character | location | faction | scenario | rule | archetype",
+    "updated_at": "ISO-8601"
+  },
+  "available_resolutions": ["REJECT", "RENAME", "REPLACE", "MERGE", "KEEP_BOTH_AS_LORE", "DISCARD_CANDIDATE"],
+  "resolution_provenance": null
+}
+```
 
-### 7.2 Category 2: Semantic Conflicts
-Occurs when imported source text contains contradictory factual claims (e.g. Source A: *"The citadel fell in 1042"*, Source B: *"The citadel was never breached"*).
-- **Rule:** The normalizer NEVER silently chooses between contradictory factual claims.
-- **Behavior:** Both claims are preserved as distinct candidate lore entries or flagged in preview under `semantic_conflicts: [{ field, claim_a, claim_b, source_a, source_b }]` for explicit user arbitration.
-
-### 7.3 Category 3: Normalization / Classification Ambiguity
-Occurs when source text could map to multiple valid entity classes (e.g. a lorebook entry describing *"The City Watch"* which could be a Faction, an Ambient Archetype, or a World Rule).
-- **Rule:** The normalizer NEVER silently assigns ambiguous entries to authoritative state.
-- **Behavior:** The candidate is returned in preview with `ambiguity_flags: [{ entry_uid, candidate_types: ['faction', 'ambient_archetype', 'world_rule'], confidence }]` requiring user selection before persistence.
+### 7.2 Conflict Categories & Behaviors
+1. **Category 1: Identity / Name Collisions:**
+   - Occurs when an imported entity matches the name of an existing active record (`deleted_at IS NULL`) in the target World.
+   - **`REJECT` (Default Fail-Safe):** Returns HTTP 409 Conflict with colliding entity details. 0 DB changes.
+   - **`RENAME`:** Appends incremental disambiguation suffix: `Name (Import 2)`. Inserts new row with fresh UUID.
+   - **`REPLACE`:** Soft-deletes existing active record (`deleted_at = isoNow()`). Inserts new record with fresh UUID.
+   - **`MERGE`:** Non-destructive explicit field merge (detailed in Section 8).
+2. **Category 2: Semantic Conflicts:**
+   - Occurs when imported source text contains contradictory factual claims (e.g. Source A: *"The citadel fell in 1042"*, Source B: *"The citadel was never breached"*).
+   - **Rule:** The normalizer NEVER silently chooses between contradictory factual claims. `RENAME`, `REPLACE`, and `MERGE` policies do NOT resolve semantic contradictions.
+   - **Behavior:** Both claims are preserved as distinct candidate lore entries or flagged in preview under `semantic_conflicts: [{ field, claim_a, claim_b, source_a, source_b }]` for explicit user arbitration.
+3. **Category 3: Normalization / Classification Ambiguity:**
+   - Occurs when source text could map to multiple valid entity classes (e.g. a lorebook entry describing *"The City Watch"* which could be a Faction, an Ambient Archetype, or a World Rule).
+   - **Rule:** The normalizer NEVER silently assigns ambiguous entries to authoritative state.
+   - **Behavior:** The candidate is returned in preview with `ambiguity_flags: [{ entry_uid, candidate_types: ['faction', 'ambient_archetype', 'world_rule'], confidence }]` requiring user selection before persistence.
 
 ---
 
@@ -160,7 +193,7 @@ The merge policy is an **explicit, field-by-field merge** defined as follows:
 | | `source_version` | Updated to imported version if non-empty. |
 | | `tags` | Set union: `Array.from(new Set([...existingTags, ...importedTags]))`. |
 | | `extensions` | Deep object merge (prototype pollution stripped); existing keys preserved, overlapping keys updated. |
-| | `extensions.provenance` | Existing provenance preserved; new import record appended to `provenance.import_history: []`. |
+| | `extensions.provenance` | Existing provenance preserved; new merge event appended to `provenance.import_history: []`. |
 | **`lws_locations`** | `name` | Preserved from existing. |
 | | `description` | Updated if imported string is non-empty. |
 | | `parent_location_id` | Updated ONLY if explicitly specified in imported payload AND validated acyclic; omitted/null leaves existing intact. |
@@ -172,16 +205,36 @@ The merge policy is an **explicit, field-by-field merge** defined as follows:
 | | `description` | Updated if imported non-empty. |
 | | `starting_location_id` | Updated if explicitly specified; otherwise preserved. |
 | | `tags`, `extensions` | Set union of tags; deep merge of extensions. |
-| **`lws_world_rules`** | `title`, `body` | Matched by `sort_order` or `title`. Updated if non-empty; `sort_order` preserved unless explicitly reordered. |
+| **`lws_world_rules`** | `title`, `body` | Matched by `lws_id` or `(world_id, LOWER(title))`. Updated if non-empty; `sort_order` preserved unless explicitly reordered. |
 | **`lws_authored_prompt_configs`** | `style_notes`, `tone_notes`, `format_notes` | Overwritten if non-empty; extensions deep merged. |
 | **`lws_ambient_archetypes`** | `role_title`, `description_template` | Matched by `archetype_key`. Updated if non-empty; `name_pool`, `default_activities`, `location_tags`, `time_windows` merged as set unions. |
 | **Join Tables** (`lws_character_factions`, `lws_scenario_characters`) | `role` | Matched by composite key. `role` updated if non-empty in import. |
 
+### 8.1 Disagreeing Identity Signals & UUID Remapping
+- **Signal Disagreement:** If an imported payload specifies `lws_id` matching Entity A, but `name` matches active Entity B:
+  - `lws_id` is the primary immutable identity signal for the merge target.
+  - Because Entity B already holds the target name in SQLite (`idx_..._name_active`), the merge cannot rename Entity A to Entity B's name without violating uniqueness; the orchestrator emits a `blocking_error` (`IDENTITY_COLLISION_NAME_IN_USE`).
+- **Source-to-Target UUID Mapping (`id_map`):**
+  - When merging or remapping entities, the orchestrator maintains an `id_map: { [source_uuid]: target_uuid }`.
+  - Foreign key references across the imported graph (e.g. `parent_location_id`, `starting_location_id`, `faction_id`, `character_id`) are rewritten using `id_map` prior to insertion.
+- **Idempotent Re-Import:**
+  - Re-importing the exact same manifest or card with `MERGE` results in 0 field changes and appends an idempotent sync record to `extensions.provenance.import_history`.
+- **Immutable Provenance History:**
+  - Merges preserve existing `provenance.created_from` and append `{ action: 'merge', merged_at: isoNow(), source_hash, updated_fields: [...] }` to `provenance.import_history`.
+
 ---
 
-## 9. Active Simulation Safety: Entity-by-Entity Reference Matrix
+## 9. Active Simulation Safety: Authoritative Policy & Entity Reference Matrix
 
-When an authored record is soft-deleted, replaced, renamed, or merged while referenced by an active running simulation:
+### 9.1 Authoritative Simulation Baseline Policy
+**Policy C: Explicitly Defined Live-Authored Dynamic Baseline with Snapshot-Guarded Core Characters and Soft-Delete Referential Integrity.**
+
+1. **Core Characters:** Guarded by an immutable `authored_snapshot` JSON string frozen at scenario instantiation inside `lws_simulation_characters` (ADR-011). In-flight character cognition, needs, values, and memories evolve causally via events; soft-deleting or replacing the authored character template row does not perturb active simulations.
+2. **Live Environmental Baselines:** World Rules, Locations, Factions, Ambient Archetypes, and Authored Prompt Configs represent the authored environment baseline of the World. Active simulations query active records (`deleted_at IS NULL`) dynamically during Prompt Context construction (Layer 3 `world_premise_rules`) and ambient population generation.
+3. **Soft-Delete Referential Integrity:** Authored entities are never physically deleted (`DELETE FROM ...`); they are soft-deleted via `deleted_at = isoNow()`. SQLite integer primary keys and foreign keys (`sc.current_location_id`, `sc.character_id`, `lws_events.location_id`) remain permanently valid. Active characters remain at their location; new movements to soft-deleted locations are blocked by domain validation.
+4. **Replay Invariance:** Simulation replay (`simulationReducer` in `src/living-world/events/replay.js`) is purely event-driven and zero-SQL. Replay reconstructs runtime state strictly from the recorded `lws_events` log and initial character snapshots, with zero reliance on live authored database queries. Thus, mutating authored tables never causes replay drift.
+
+### 9.2 Entity-by-Entity Reference Matrix
 
 | Entity Type | Reference Mechanism in Active Simulation | Behavior on Soft-Delete | Behavior on Replace | Behavior on Rename | Behavior on Merge |
 |---|---|---|---|---|---|
@@ -192,74 +245,129 @@ When an authored record is soft-deleted, replaced, renamed, or merged while refe
 | **Scenario** (`lws_scenarios`) | Referenced by `lws_simulations.scenario_id` (optional integer FK). Trigger `trg_lws_simulations_scenario_id_immutable` prevents FK mutation. | Simulation runs independently; scenario was merely the initial configuration template. | Old scenario soft-deleted; running simulation unaffected. | Simulation unaffected. | Starting conditions updated for future simulations; active simulation unaffected. |
 | **World Rule** (`lws_world_rules`) | Injected into Prompt Context Layer 3 (`world_premise_rules`) via live query (`WHERE deleted_at IS NULL`). | Next LLM generation turn prompt omits the deleted rule; deterministic simulation logic unaffected unless rule was referenced in cognition deliberation. | Next turn prompt receives updated rule text. | Prompt reflects updated rule title. | Prompt reflects merged rule body. |
 | **Ambient Archetype** (`lws_ambient_archetypes`) | Queried dynamically during ambient population generation (`generateAmbientPopulation`). | Soft-deleted archetypes are excluded from future viewport ambient spawns (`WHERE deleted_at IS NULL`). Already promoted characters hold immutable promotion records (`lws_promoted_entity_records`). | New spawns use replacement archetype; promoted characters unaffected. | New spawns use renamed archetype. | Updated activity/name pool immediately available for next viewport spawn. |
+| **Authored Prompt Config** (`lws_authored_prompt_configs`) | Injected into Prompt Context Layer 4 (`style_and_author_instructions`) via live query. | If deleted/reset, defaults apply. | Next turn prompt receives updated style/tone notes. | N/A (single row per world). | Style/tone notes updated; running simulation reflects updated prompt instructions on next generation turn. |
+| **Join Tables** (`lws_character_factions`, `lws_scenario_characters`) | Used only during scenario instantiation to seed initial memberships/roster. | Soft-deleted / removed relationships do not alter active runtime simulation memberships or active character instances. | New simulations use updated roster; active simulations unaffected. | N/A. | Updated roles apply to future simulation instantiations. |
 
 ---
 
 ## 10. Canonical LWS World Manifest Specification (`lws_world_manifest_v1`)
 
-### 10.1 Classification & Justification
+### 10.1 Classification & Interchange Format
 - **Classification:** Implementation-Level Design Enhancement.
+- **Interchange Format Standard:**
+  - **Canonical Standard:** JSON (`application/json`) is the primary, required interchange format.
+  - **YAML Support:** Fully supported as an optional ingestion format. Parsed via `js-yaml` using `DEFAULT_SAFE_SCHEMA` (strict safe loading, prototype pollution filtering, circular reference blocking, custom tag execution prohibited). Handled MIME types: `application/json`, `application/x-yaml`, `text/yaml`. Max payload: 10 MB.
 - **Original Roadmap Basis:** Fulfills `PHASE_DEVELOPMENT_PLAN.md` Phase 11 requirement for "authored world/character creation workflow" and "canonical LWS entities are valid and reusable."
-- **Rationale:** Establishes a standardized, versioned JSON/YAML bundle format for lossless multi-entity world backup, sharing, and batch ingestion.
+- **Rationale:** Establishes a standardized, versioned bundle format for semantic and relationally lossless export, sharing, and batch ingestion.
 
-### 10.2 Manifest Parity Contract
+### 10.2 Public UUID Preservation vs. Remapping
+- **Preservation:** When importing into a fresh world (or `preserve_ids: true` and no UUID collisions exist in SQLite), original `lws_id` values are preserved.
+- **Deterministic Remapping:** When importing with `preserve_ids: false` or on UUID collision with `RENAME`, fresh UUIDs (`generateUuid()`) are assigned, and all internal relational links are remapped using `id_map`.
 
-When exporting a world and re-importing it into a fresh world, the parity contract defines exact matching vs. intentionally differing values:
+### 10.3 Canonical Parity Comparison Algorithm
+When verifying export/import round-trip fidelity, the parity contract defines exact matching vs. intentionally differing values:
 
-#### 1. Intentionally Differing Values:
-- SQLite internal integer primary keys (`id`, `world_id`, `character_id`, `location_id`, `faction_id`, `scenario_id`) are newly allocated by SQLite AUTOINCREMENT.
-- `created_at`, `updated_at` reflect the import execution timestamp.
-- `extensions.provenance` records the import event and source manifest hash.
-
-#### 2. Strictly Matching Values (Semantic & Relational Parity):
-- **Public UUIDs (`lws_id`):** Preserved or re-mapped deterministically.
-- **Text & Content Attributes:** 100% exact Unicode NFC match for all names, descriptions, personalities, scenario contexts, dialogue examples, author notes, system prompts, rule bodies, and archetype templates.
-- **Arrays & Collections:** 100% exact match for tags, name pools, activities, location tags, and time windows.
-- **Numbers & Bounds:** 100% exact match for sort orders, spawn weights, and concurrent instance limits.
-- **Relational Topologies:**
-  - Location hierarchy parent-child links match 100%.
-  - Character-to-faction memberships and roles match 100%.
-  - Scenario character roster assignments and starting location references match 100%.
-
----
-
-## 11. Character Card Compatibility Scope
-
-| Format | Supported in Phase 11? | Parser & Validator | Normalization & Mapping | Failure Behavior |
-|---|:---:|---|---|---|
-| **Character Card V1 (JSON)** | **YES** | JSON parse + `TavernCardValidator.validateV1()` | Maps flat `name`, `description`, `personality`, `scenario`, `mes_example`, `first_mes`. | Rejects with HTTP 400 if required fields missing. |
-| **Character Card V2 (JSON)** | **YES** | JSON parse + `TavernCardValidator.validateV2()` | Maps `data.*` fields; extracts embedded `character_book`. | Rejects with HTTP 400 if `spec_version != '2.0'` or `data` missing. |
-| **Character Card V3 (JSON)** | **YES** | JSON parse + `TavernCardValidator.validateV3()` | Maps `data.*` fields; captures `assets` in `extensions.unmapped_fields`. | Rejects with HTTP 400 if spec invalid. |
-| **PNG Character Cards** | **YES** | `src/character-card-parser.js` `read(buffer)` | `ccv3` chunk takes precedence over `chara` chunk; base64 decoded. | Rejects with HTTP 400 if no PNG metadata found. |
-| **BYAF / CharX Archives** | **NO** (Deferred) | Out of scope for Phase 11 | N/A | Returns HTTP 422 `UNSUPPORTED_ARCHIVE_FORMAT`. |
+1. **Intentionally Differing Values:**
+   - SQLite internal integer primary keys (`id`, `world_id`, `character_id`, `location_id`, `faction_id`, `scenario_id`) are newly allocated by SQLite AUTOINCREMENT.
+   - `created_at`, `updated_at` reflect the import execution timestamp.
+   - `extensions.provenance` records the import event and source manifest hash.
+2. **Strict Parity Comparison Steps:**
+   - **Step 1:** Strip internal integer primary keys (`id`, integer FKs).
+   - **Step 2:** Normalize Unicode NFC across all strings.
+   - **Step 3:** Compare scalar text attributes (`name`, `description`, `personality`, `scenario_context`, `mes_example`, `author_notes`, `system_prompt_override`, `body`, `style_notes`, `tone_notes`, `format_notes`) using strict string equality `===`.
+   - **Step 4:** Compare unordered arrays (`tags`, `name_pool`, `default_activities`, `location_tags`, `time_windows`) using sorted set equality (`lodash.isEqual(a.slice().sort(), b.slice().sort())`).
+   - **Step 5:** Compare ordered collections (`lws_world_rules` sorted by `sort_order ASC`, `lws_scenario_characters` sorted by `sort_order ASC`) preserving exact sequence index.
+   - **Step 6:** Compare extension objects via deep equality excluding transient runtime sync metadata.
+   - **Step 7:** Verify 100% relational graph topology:
+     - Location hierarchy parent-child links match 100%.
+     - Character-to-faction memberships and roles match 100%.
+     - Scenario character roster assignments and starting location references match 100%.
+   - **Step 8:** Soft-deleted records (`deleted_at IS NOT NULL`) are omitted from exported manifest.
 
 ---
 
-## 12. Lorebook Extraction Pipeline
+## 11. Comprehensive Character Card Compatibility Specification
 
-Enforcing the domain rule: *“Lore is not physical reality.”*
+### 11.1 Complete Field Mapping Table
 
-```text
-Source Lorebook Entry
-        ↓
-Classification Heuristic (Comment, Keys, Content, Constant Flag)
-        ↓
-Candidate Entity Categorization & Confidence Scoring
-        ↓
-┌─────────────────────────┬─────────────────────────┬─────────────────────────┐
-│ High Confidence (>= 80%)│ High Confidence (>= 80%)│ Default Lore / Flavor   │
-│ Rules, Factions, Locs   │ Ambient Archetypes      │ (< 80% or General Lore) │
-├─────────────────────────┼─────────────────────────┼─────────────────────────┤
-│ Proposed as Candidate   │ Proposed as Candidate   │ Mapped to Lore Tags or  │
-│ lws_world_rules,        │ lws_ambient_archetypes  │ Prompt Config Lorebook  │
-│ lws_factions,           │                         │ Extensions (NOT Rules)  │
-│ lws_locations           │                         │                         │
-└─────────────────────────┴─────────────────────────┴─────────────────────────┘
-        ↓
-Preview Response (User reviews and can reclassify/exclude any candidate)
-        ↓
-Explicit Confirmation & Atomic SQLite Persistence
-```
+| Source Field | V1 Spec | V2 Spec (`data.*`) | V3 Spec (`data.*`) | Destination in LWS | Normalization & Type | Preservation Behavior | Warning / Discard Behavior | Round-Trip Status |
+|---|:---:|:---:|:---:|---|---|---|---|:---:|
+| `name` | Flat root | `data.name` | `data.name` | `lws_characters.name` | String, NFC trimmed (Max 255 chars) | Stored in column | Rejects with 400 if missing or empty | Lossless |
+| `description` | Flat root | `data.description` | `data.description` | `lws_characters.description` | String, NFC (Max 65,535 chars) | Stored in column | Defaults to `''` if omitted | Lossless |
+| `personality` | Flat root | `data.personality` | `data.personality` | `lws_characters.personality` | String, NFC (Max 65,535 chars) | Stored in column | Defaults to `''` if omitted | Lossless |
+| `scenario` | Flat root | `data.scenario` | `data.scenario` | `lws_characters.scenario_context` | String, NFC (Max 65,535 chars) | Stored in column | Renamed to `scenario_context` | Lossless |
+| `first_mes` | Flat root | `data.first_mes` | `data.first_mes` | `extensions.first_mes` | String, NFC | Preserved in `extensions` | Defaults to `''` | Lossless |
+| `mes_example` | Flat root | `data.mes_example` | `data.mes_example` | `lws_characters.mes_example` | String, NFC (Max 65,535 chars) | Stored in column | Defaults to `''` if omitted | Lossless |
+| `alternate_greetings` | N/A | `data.alternate_greetings` | `data.alternate_greetings` | `extensions.alternate_greetings` | Array of strings | Preserved in `extensions` | Defaults to `[]` | Lossless |
+| `post_history_instructions` | N/A | `data.post_history_instructions` | `data.post_history_instructions` | `extensions.post_history_instructions` | String, NFC | Preserved in `extensions` | Defaults to `''` | Lossless |
+| `creator` | N/A | `data.creator` | `data.creator` | `extensions.creator` | String, NFC | Preserved in `extensions` | Defaults to `''` | Lossless |
+| `character_version` | N/A | `data.character_version` | `data.character_version` | `lws_characters.source_version` | String (Max 50 chars) | Stored in column | Defaults to `'1.0'` | Lossless |
+| `creator_notes` | N/A | `data.creator_notes` | `data.creator_notes` | `lws_characters.author_notes` | String, NFC | Stored in `author_notes` | Defaults to `''` | Lossless |
+| `system_prompt` | N/A | `data.system_prompt` | `data.system_prompt` | `lws_characters.system_prompt_override`| String, NFC | Stored in column | Defaults to `''` | Lossless |
+| `tags` | N/A | `data.tags` | `data.tags` | `lws_characters.tags` | Array of strings (JSON string in DB) | Stored in column | Defaults to `[]` | Lossless |
+| `nickname` | N/A | N/A | `data.nickname` | `extensions.nickname` | String, NFC | Preserved in `extensions` | Defaults to `''` | Lossless |
+| `character_book` | N/A | `data.character_book` | `data.character_book` | Embedded Lorebook Pipeline | Object with `entries: []` | Extracted into candidates (Section 12) | Unconverted lore preserved in `extensions.lorebook` | Lossless |
+| `assets` | N/A | N/A | `data.assets` | `extensions.assets` | Array / Object | Preserved in `extensions` | Emits info warning `ASSETS_PRESERVED_IN_EXTENSIONS` | Lossless |
+| `creator_notes_multilingual` | N/A | N/A | `data.creator_notes_multilingual` | `extensions.creator_notes_multilingual` | Object map | Preserved in `extensions` | Defaults to `{}` | Lossless |
+| `source` / `sources` | N/A | N/A | `data.sources` | `extensions.sources` | Array of strings / string | Preserved in `extensions` | Defaults to `[]` | Lossless |
+| `group_greetings` | N/A | N/A | `data.group_greetings` | `extensions.group_greetings` | Array of strings | Preserved in `extensions` | Defaults to `[]` | Lossless |
+| `creation_date` / `modification_date` | N/A | `data.creation_date` | `data.creation_date` | `extensions.provenance.source_creation_date` | String / Number | Preserved in `extensions.provenance` | Preserved as metadata | Lossless |
+| `extensions` | N/A | `data.extensions` | `data.extensions` | `lws_characters.extensions` | Object (JSON string in DB) | Deep merged into `extensions` | Vendor keys preserved | Lossless |
+| Unmapped / Vendor Fields | N/A | Extra keys in `data` | Extra keys in `data` | `extensions.unmapped_fields` | Object map | Stored in `extensions.unmapped_fields` | Emits warning `UNMAPPED_FIELDS_PRESERVED` | Lossless |
+
+### 11.2 PNG Metadata Extraction & Precedence
+1. **Extraction Order:**
+   - Buffer is inspected for PNG signature (`89 50 4E 47 0D 0A 1A 0A`).
+   - PNG `tEXt` chunks are parsed via SillyTavern host infrastructure (`src/character-card-parser.js`).
+   - **Precedence:** `ccv3` chunk (Spec V3) is checked first. If present and valid UTF-8 base64 JSON, it is parsed as Spec V3.
+   - If `ccv3` is absent, the `chara` chunk (Spec V2/V1) is checked, base64 decoded, and parsed as JSON.
+   - If both `ccv3` and `chara` exist, `ccv3` takes precedence and `chara` chunk SHA-256 is logged in `provenance.secondary_chunk_hash`.
+2. **Failure Behavior:**
+   - Non-PNG buffer or missing chunks return HTTP 400 (`LWS_INVALID_CARD_FORMAT`).
+3. **Future / Unsupported Spec Versions (`spec_version > 3.0` or unknown):**
+   - Parser extracts standard common fields (`name`, `description`, etc.).
+   - Full raw source is captured in `extensions.unmapped_fields.raw_source`.
+   - Structured warning emitted: `UNSUPPORTED_SPEC_VERSION` (`"Detected spec version X.Y higher than supported 3.0; captured unknown fields in extensions.unmapped_fields"`).
+
+---
+
+## 12. Lorebook Extraction & Classification Pipeline
+
+Enforcing the foundational domain invariant: **“Lore is not physical reality.”** Arbitrary lorebook text is never automatically transformed into authoritative `lws_world_rules` or `lws_factions` without deterministic classification or explicit user confirmation.
+
+### 12.1 Deterministic Evidence & Scoring Model
+Each lorebook entry is evaluated across 6 normalized evidence scores ($0.0 \le S_i \le 1.0$):
+
+1. **Rule Score ($S_{\text{rule}}$):**
+   - Keywords matching physical/magical/social absolutes: `["always", "cannot", "must", "law of", "physics", "system rule", "forbidden", "mechanic", "stat"]` (Weight: 0.35).
+   - Entry marked `constant: true` or `selective: false` with system keys (Weight: 0.35).
+   - Structured prescriptive syntax (e.g. `Condition -> Effect` or numbered laws) (Weight: 0.30).
+2. **Location Score ($S_{\text{loc}}$):**
+   - Keywords matching physical geography/structures: `["room", "city", "tavern", "castle", "forest", "district", "located at", "north of", "south of", "building", "street"]` (Weight: 0.40).
+   - Spatial containment or hierarchy keys (Weight: 0.30).
+   - Descriptive spatial tags (Weight: 0.30).
+3. **Faction Score ($S_{\text{fac}}$):**
+   - Keywords matching organized groups: `["guild", "order", "army", "clan", "syndicate", "alliance", "kingdom", "cult", "faction", "members"]` (Weight: 0.40).
+   - Organizational hierarchy terms (`"leader"`, `"rank"`, `"headquarters"`) (Weight: 0.30).
+   - Group membership rosters (Weight: 0.30).
+4. **Ambient Archetype Score ($S_{\text{arch}}$):**
+   - Keywords matching generic populations: `["guards", "patrons", "merchants", "villagers", "bandits", "citizens", "crowd", "nameless", "ambient"]` (Weight: 0.40).
+   - Spawn activity patterns or time window references (Weight: 0.30).
+   - Plural generic role titles (Weight: 0.30).
+5. **Character Score ($S_{\text{char}}$):**
+   - Singular proper noun identity, personal pronouns (`"he"`, `"she"`, `"they"`), personal history (Weight: 0.50).
+   - Single-character personality traits and dialogue samples (Weight: 0.50).
+6. **Lore / Flavor Score ($S_{\text{lore}}$):**
+   - Narrative background, mythology, historical anecdotes, flavor text, rumors $\to$ Default baseline classification.
+
+### 12.2 Promotion Thresholds & Ambiguity Rules
+- **High-Confidence Candidate Promotion:**
+  - An entry is proposed as a specific candidate entity if and only if:
+    $$\max(S_i) \ge 0.80 \quad \text{AND} \quad \left(\max(S_i) - \text{second\_highest}(S_i)\right) \ge 0.20$$
+- **Ambiguous Classification:**
+  - If $\max(S_i) < 0.80$ or the margin between the top two categories is $< 0.20$, the entry is marked `status: 'ambiguous'` and placed in preview with `ambiguity_flags: [{ entry_uid, candidate_types: [...], scores: {...} }]`.
+- **Default Lore / Flavor Destination:**
+  - Entries where $S_{\text{lore}}$ is highest or where no structural category meets the threshold are mapped to `candidate_entities.lore_entries` and persisted in `lws_worlds.extensions.lorebook` (or prompt config notes). They are **NEVER** automatically converted into `lws_world_rules`.
 
 ---
 
@@ -288,21 +396,31 @@ sequenceDiagram
     DB-->>Client: HTTP 201 Created { world, characters, locations, rules }
 ```
 
----
-
-## 14. Preview / Commit TOCTOU Race Defense
-
-1. **Advisory Preview Principle:** Preview responses are strictly ephemeral and advisory. The server does not reserve names or lock database rows during preview.
-2. **Commit-Time Full Re-Validation:** When the client submits candidate entities to a commit endpoint (`POST /.../commit`), the server re-runs:
-   - Schema validation and bounds checking.
-   - Domain validation (including tree LCA cycle detection on location parent references).
-   - Current-state conflict detection inside the active SQLite transaction (`db.transaction(...)`).
-   - Active world existence verification.
-3. **Stale-Preview Handling:** If a concurrent change occurred between preview and commit causing an active name collision, the commit endpoint fails closed with HTTP 409 Conflict rather than proceeding on outdated preview state.
+### 13.1 AI Normalization Invariants & Negative Tests
+1. **Untrusted Proposal Model:** AI normalization produces untrusted candidate JSON graphs that are strictly quarantined until passing schema, bounds, and tree LCA cycle checks.
+2. **Negative No-Invention Contract:**
+   - Normalization prompts explicitly instruct the model: *"Extract only facts explicitly stated in the source text. Do not invent unmentioned locations, factions, or rules."*
+   - Verification suites include negative tests: unstated properties must evaluate to empty strings/arrays; ungrounded hallucinations result in test failure.
 
 ---
 
-## 15. Import Resource Limits & Upload Cleanup Guarantees
+## 14. Advisory Preview & TOCTOU Transaction-Time Re-Validation
+
+1. **Advisory Preview Principle:**
+   - Preview endpoints (`POST /api/living-world/import/*/preview`) are 100% read-only and dry-run. Zero SQLite mutations occur during preview.
+   - Preview responses include an advisory `preview_token` (JWT / HMAC containing a target world state hash and 15-minute TTL).
+2. **Commit-Time Transactional Re-Validation:**
+   - When the client calls a commit endpoint (`POST /.../commit`), the server executes inside an atomic SQLite transaction (`db.transaction(...)`):
+     - Validates input schemas and size bounds.
+     - Detects cycles in hierarchical locations (`src/living-world/authored/locations.js`).
+     - Re-evaluates current database state for active name collisions (`idx_..._name_active`).
+     - Verifies active existence of referenced worlds, parent locations, and factions.
+3. **Stale-Preview Defense:**
+   - If a concurrent transaction created an active entity with the same name between preview and commit, commit fails closed with HTTP 409 Conflict (`code: 'LWS_STALE_PREVIEW'`).
+
+---
+
+## 15. Resource Limits & Guaranteed File Upload Cleanup
 
 ### 15.1 Resource & Size Limits
 - **Uploaded File Buffer:** Max 10 MB.
@@ -319,109 +437,212 @@ All temporary uploaded files are wrapped in `try ... finally` execution blocks e
 
 ---
 
-## 16. Exact REST API Contract (Exactly 9 Endpoints)
+## 16. Exact REST API Transport Contract (Exactly 9 Endpoints)
 
-### 1. `POST /api/living-world/import/character/preview`
+### 16.1 Standardized Error Response Schema
+All error responses adhere to the standard schema:
+```json
+{
+  "error": "Human-readable error description",
+  "code": "LWS_VALIDATION_ERROR | LWS_NOT_FOUND | LWS_CONFLICT | LWS_STALE_PREVIEW | LWS_UNSUPPORTED_FORMAT | LWS_PAYLOAD_TOO_LARGE | LWS_INTERNAL_ERROR",
+  "details": [],
+  "conflicts": []
+}
+```
+
+### 16.2 Endpoint Specifications
+
+#### 1. `POST /api/living-world/import/character/preview`
 - **Path:** `/api/living-world/import/character/preview`
 - **Method:** `POST`
-- **Auth:** Required (ST user session).
-- **Content-Type:** `multipart/form-data` (`avatar` file) OR `application/json` (`{ card: object }`).
-- **Limits:** 10 MB.
-- **Request:** `{ card?: object, target_world_lws_id?: string }`.
-- **Response:** `200 OK` `{ success: true, normalized: object, provenance: object, conflicts: object[], warnings: string[] }`.
-- **Status Codes:** `200 OK`, `400 Bad Request`, `403 Forbidden`.
+- **Auth:** Required.
+- **Content-Type:** `multipart/form-data` (`avatar` file) OR `application/json` (`{ card: object, target_world_lws_id?: string }`).
+- **Response `200 OK`:**
+  ```json
+  {
+    "success": true,
+    "preview_token": "string",
+    "source_type": "sillytavern_card_v2",
+    "normalized": { "name": "...", "description": "...", "personality": "...", "scenario_context": "...", "tags": [], "extensions": {} },
+    "provenance": { "source_format": "png", "source_hash": "...", "field_mappings": {} },
+    "conflicts": [],
+    "warnings": []
+  }
+  ```
 - **Transaction:** None (In-memory dry-run).
 
-### 2. `POST /api/living-world/worlds/:worldLwsId/import/character`
+#### 2. `POST /api/living-world/worlds/:worldLwsId/import/character`
 - **Path:** `/api/living-world/worlds/:worldLwsId/import/character`
 - **Method:** `POST`
 - **Auth:** Required.
 - **Content-Type:** `multipart/form-data` OR `application/json`.
-- **Limits:** 10 MB.
-- **Request:** `{ card?: object, conflict_policy?: 'reject'|'rename'|'replace'|'merge' }`.
-- **Response:** `201 Created` `{ success: true, character: object, provenance: object }`.
-- **Status Codes:** `201 Created`, `400 Bad Request`, `404 Not Found`, `409 Conflict`, `422 Unprocessable Entity`.
+- **Request Body:** `{ card?: object, conflict_policy?: "reject" | "rename" | "replace" | "merge" }`.
+- **Response `201 Created`:**
+  ```json
+  {
+    "success": true,
+    "character": { "id": 1, "lws_id": "...", "name": "...", "world_id": 1 },
+    "provenance": { "source_hash": "...", "imported_at": "..." }
+  }
+  ```
 - **Transaction:** Atomic SQLite transaction.
 
-### 3. `POST /api/living-world/import/worldinfo/preview`
+#### 3. `POST /api/living-world/import/worldinfo/preview`
 - **Path:** `/api/living-world/import/worldinfo/preview`
 - **Method:** `POST`
 - **Auth:** Required.
 - **Content-Type:** `multipart/form-data` OR `application/json`.
-- **Limits:** 10 MB.
-- **Request:** `{ worldinfo: object, target_world_lws_id?: string }`.
-- **Response:** `200 OK` `{ success: true, candidate_entities: { world_rules: [], locations: [], factions: [], ambient_archetypes: [], lore_entries: [] }, warnings: string[] }`.
-- **Status Codes:** `200 OK`, `400 Bad Request`, `403 Forbidden`.
+- **Request Body:** `{ worldinfo: object, target_world_lws_id?: string }`.
+- **Response `200 OK`:**
+  ```json
+  {
+    "success": true,
+    "preview_token": "string",
+    "summary": { "total_entries": 10, "classified_rules": 2, "classified_locations": 3, "classified_factions": 1, "classified_archetypes": 1, "lore_entries": 3 },
+    "candidate_entities": { "world_rules": [], "locations": [], "factions": [], "ambient_archetypes": [], "lore_entries": [] },
+    "conflicts": [],
+    "warnings": []
+  }
+  ```
 - **Transaction:** None (In-memory dry-run).
 
-### 4. `POST /api/living-world/worlds/:worldLwsId/import/worldinfo`
+#### 4. `POST /api/living-world/worlds/:worldLwsId/import/worldinfo`
 - **Path:** `/api/living-world/worlds/:worldLwsId/import/worldinfo`
 - **Method:** `POST`
 - **Auth:** Required.
 - **Content-Type:** `application/json`.
-- **Limits:** 10 MB.
-- **Request:** `{ candidate_entities: object, conflict_policy?: string }`.
-- **Response:** `201 Created` `{ success: true, imported_counts: object, entities: object }`.
-- **Status Codes:** `201 Created`, `400 Bad Request`, `404 Not Found`, `409 Conflict`, `422 Unprocessable Entity`.
+- **Request Body:** `{ candidate_entities: object, conflict_policy?: "reject" | "rename" | "replace" | "merge" }`.
+- **Response `201 Created`:**
+  ```json
+  {
+    "success": true,
+    "imported_counts": { "world_rules": 2, "locations": 3, "factions": 1, "ambient_archetypes": 1 },
+    "entities": { "world_rules": [], "locations": [], "factions": [], "ambient_archetypes": [] }
+  }
+  ```
 - **Transaction:** Atomic SQLite transaction.
 
-### 5. `POST /api/living-world/import/freeform/preview`
+#### 5. `POST /api/living-world/import/freeform/preview`
 - **Path:** `/api/living-world/import/freeform/preview`
 - **Method:** `POST`
 - **Auth:** Required.
 - **Content-Type:** `application/json`.
-- **Limits:** 10 MB.
-- **Request:** `{ text: string, target_world_lws_id?: string }`.
-- **Response:** `200 OK` `{ success: true, candidate_entities: object, ambiguity_flags: object[], warnings: string[] }`.
-- **Status Codes:** `200 OK`, `400 Bad Request`, `422 Unprocessable Entity`.
+- **Request Body:** `{ text: string, target_world_lws_id?: string }`.
+- **Response `200 OK`:**
+  ```json
+  {
+    "success": true,
+    "preview_token": "string",
+    "candidate_entities": { "world": {}, "characters": [], "locations": [], "factions": [], "world_rules": [] },
+    "ambiguity_flags": [],
+    "warnings": []
+  }
+  ```
 - **Transaction:** None (In-memory dry-run).
 
-### 6. `POST /api/living-world/worlds/:worldLwsId/import/freeform`
+#### 6. `POST /api/living-world/worlds/:worldLwsId/import/freeform`
 - **Path:** `/api/living-world/worlds/:worldLwsId/import/freeform`
 - **Method:** `POST`
 - **Auth:** Required.
 - **Content-Type:** `application/json`.
-- **Limits:** 10 MB.
-- **Request:** `{ candidate_entities: object, conflict_policy?: string }`.
-- **Response:** `201 Created` `{ success: true, imported_counts: object, entities: object }`.
-- **Status Codes:** `201 Created`, `400 Bad Request`, `404 Not Found`, `409 Conflict`, `422 Unprocessable Entity`.
+- **Request Body:** `{ candidate_entities: object, conflict_policy?: "reject" | "rename" | "replace" | "merge" }`.
+- **Response `201 Created`:**
+  ```json
+  {
+    "success": true,
+    "imported_counts": { "characters": 1, "locations": 2, "factions": 1, "world_rules": 1 },
+    "entities": { "characters": [], "locations": [], "factions": [], "world_rules": [] }
+  }
+  ```
 - **Transaction:** Atomic SQLite transaction.
 
-### 7. `POST /api/living-world/import/manifest/preview`
+#### 7. `POST /api/living-world/import/manifest/preview`
 - **Path:** `/api/living-world/import/manifest/preview`
 - **Method:** `POST`
 - **Auth:** Required.
-- **Content-Type:** `application/json`.
-- **Limits:** 10 MB.
-- **Request:** `{ manifest: object }`.
-- **Response:** `200 OK` `{ success: true, valid: boolean, summary: object, conflicts: object[], warnings: string[] }`.
-- **Status Codes:** `200 OK`, `400 Bad Request`.
+- **Content-Type:** `application/json` OR `application/x-yaml`.
+- **Request Body:** `{ manifest: object }`.
+- **Response `200 OK`:**
+  ```json
+  {
+    "success": true,
+    "preview_token": "string",
+    "valid": true,
+    "summary": { "world_name": "...", "characters": 4, "locations": 6, "factions": 2, "world_rules": 3, "scenarios": 1, "ambient_archetypes": 3 },
+    "conflicts": [],
+    "warnings": []
+  }
+  ```
 - **Transaction:** None (In-memory dry-run).
 
-### 8. `POST /api/living-world/import/manifest/commit`
+#### 8. `POST /api/living-world/import/manifest/commit`
 - **Path:** `/api/living-world/import/manifest/commit`
 - **Method:** `POST`
 - **Auth:** Required.
-- **Content-Type:** `application/json`.
-- **Limits:** 10 MB.
-- **Request:** `{ manifest: object, conflict_policy?: string }`.
-- **Response:** `201 Created` `{ success: true, world: object, imported_counts: object }`.
-- **Status Codes:** `201 Created`, `400 Bad Request`, `409 Conflict`, `422 Unprocessable Entity`.
+- **Content-Type:** `application/json` OR `application/x-yaml`.
+- **Request Body:** `{ manifest: object, conflict_policy?: "reject" | "rename" | "replace" | "merge", preserve_ids?: boolean }`.
+- **Response `201 Created`:**
+  ```json
+  {
+    "success": true,
+    "world": { "id": 1, "lws_id": "...", "name": "..." },
+    "imported_counts": { "characters": 4, "locations": 6, "factions": 2, "world_rules": 3, "scenarios": 1, "ambient_archetypes": 3 }
+  }
+  ```
 - **Transaction:** Atomic SQLite transaction.
 
-### 9. `GET /api/living-world/worlds/:worldLwsId/export/manifest`
+#### 9. `GET /api/living-world/worlds/:worldLwsId/export/manifest`
 - **Path:** `/api/living-world/worlds/:worldLwsId/export/manifest`
 - **Method:** `GET`
 - **Auth:** Required.
 - **Content-Type:** `application/json`.
-- **Request:** None (URL param `:worldLwsId`).
-- **Response:** `200 OK` `{ spec: 'lws_world_manifest_v1', spec_version: '1.0', exported_at: string, world: object, characters: [], locations: [], factions: [], character_factions: [], world_rules: [], scenarios: [], ambient_archetypes: [], prompt_config: object }`.
-- **Status Codes:** `200 OK`, `404 Not Found`.
+- **Response `200 OK`:**
+  ```json
+  {
+    "spec": "lws_world_manifest_v1",
+    "spec_version": "1.0",
+    "exported_at": "ISO-8601",
+    "world": { "lws_id": "...", "name": "...", "description": "...", "tags": [], "extensions": {} },
+    "characters": [],
+    "locations": [],
+    "factions": [],
+    "character_factions": [],
+    "world_rules": [],
+    "scenarios": [],
+    "scenario_characters": [],
+    "ambient_archetypes": [],
+    "prompt_config": {}
+  }
+  ```
 - **Transaction:** Read-only transaction.
 
 ---
 
-## 17. Official Roadmap Acceptance Matrix
+## 17. Pre-Implementation Regression Baseline & Future Phase 11 Test Matrix
+
+### 17.1 Pre-Implementation Regression Baseline
+The current repository test suite serves as the **pre-implementation regression baseline**:
+- **Living World Subsystem:** Exactly 69 test suites, 459 tests passing (0 failures).
+- **Full Host Repository:** Exactly 88 test suites, 870 tests passing (0 failures).
+- *These baseline tests verify existing Phase 1–10 capabilities and do not constitute proof of Phase 11 acceptance.*
+
+### 17.2 Future Phase 11 Test Matrix
+During authorized Phase 11 implementation, exactly 8 dedicated test suites will be authored in `tests/living-world/`:
+
+| Test Suite File | Target Module | Scope & Coverage | Target Test Count |
+|---|---|---|:---:|
+| `lws-card-importer.test.js` | `src/living-world/import/card-importer.js` | V1, V2, V3 JSON and PNG metadata extraction (`ccv3` / `chara` chunk precedence), unmapped field capture, and failure paths. | 10+ |
+| `lws-worldinfo-importer.test.js` | `src/living-world/import/worldinfo-importer.js` | Lorebook parsing, scoring heuristics, confidence promotion, lore preservation, and multi-entry extraction. | 8+ |
+| `lws-manifest-importer.test.js` | `src/living-world/import/manifest-importer.js` | `lws_world_manifest_v1` JSON & YAML parsing, schema validation, serialization, and 100% parity comparison. | 8+ |
+| `lws-ai-normalizer.test.js` | `src/living-world/import/ai-normalizer.js` | Freeform text extraction, mock ST provider bridge, negative no-hallucination tests, and boundary sandboxing. | 6+ |
+| `lws-conflicts.test.js` | `src/living-world/import/conflicts.js` | Deterministic verification of `REJECT`, `RENAME`, `REPLACE`, and explicit field `MERGE` across all authored tables. | 10+ |
+| `lws-authoring-bundle.test.js` | `src/living-world/import/authoring.js` | Atomic multi-entity creation, transaction rollback on failure, TOCTOU re-validation, and active simulation decoupling. | 8+ |
+| `lws-provenance.test.js` | `src/living-world/import/common.js` | Provenance durability, SHA-256 source hashing, and World-level component manifest mapping for rules and join tables. | 6+ |
+| `lws-import-api.test.js` | `src/endpoints/living-world.js` | HTTP integration tests for all 9 preview, commit, and export REST routes with auth and error code verification. | 12+ |
+
+---
+
+## 18. Official Roadmap Acceptance Matrix
 
 The acceptance criteria are derived directly from the four official Phase 11 acceptance requirements in [PHASE_DEVELOPMENT_PLAN.md](file:///D:/SillyTavern/docs/living-world/PHASE_DEVELOPMENT_PLAN.md#L293-L298):
 
@@ -430,11 +651,40 @@ The acceptance criteria are derived directly from the four official Phase 11 acc
 | **1** | **Existing ST characters can enter LWS without losing source provenance.** | Ingesting a V1, V2, or V3 PNG/JSON character card creates an authored character row in `lws_characters` with complete `extensions.provenance` storing source format, hash, version, mappings, and unmapped keys. | `src/living-world/import/card-importer.js`, `src/living-world/import/common.js` | `tests/living-world/lws-card-importer.test.js`, `tests/living-world/lws-provenance.test.js` | Character is persisted; all standard fields mapped; `extensions.provenance` is complete and valid JSON. | All mapped fields match source; source SHA-256 and spec version preserved. |
 | **2** | **Missing information is not silently invented.** | Ingesting a card or freeform text with omitted optional fields leaves those fields as empty strings / arrays. AI normalizer cannot inject unsupported facts into authoritative world rules. | `src/living-world/import/card-importer.js`, `src/living-world/import/ai-normalizer.js` | `tests/living-world/lws-card-importer.test.js`, `tests/living-world/lws-ai-normalizer.test.js` | Omitted fields remain empty; ungrounded AI inferences flagged in `provenance.inferred_fields` and excluded from authoritative rules. | `character.personality === ''` when omitted; ungrounded facts fail closed. |
 | **3** | **Ambiguous normalization is reviewable.** | Complex lorebooks, multi-class entities (e.g. "Silver Guard" as Faction vs Archetype vs Rule), and name collisions return candidate preview graphs with ambiguity flags before committing. | `src/living-world/import/freeform-importer.js`, `src/living-world/import/worldinfo-importer.js`, `src/living-world/import/conflicts.js` | `tests/living-world/lws-ai-normalizer.test.js`, `tests/living-world/lws-conflicts.test.js` | Preview endpoint returns HTTP 200 with candidate entity options and ambiguity flags; 0 database rows created until explicit commit. | Database row count remains completely unchanged during preview calls. |
-| **4** | **Canonical LWS entities are valid and reusable.** | Exporting a World and re-importing it into a fresh World via `lws_world_manifest_v1` restores all entities with 100% relational integrity; the imported world successfully instantiates a running simulation. | `src/living-world/import/manifest-importer.js`, `src/living-world/import/authoring.js` | `tests/living-world/lws-manifest-importer.test.js`, `tests/living-world/lws-authoring-bundle.test.js` | Re-imported world matches exported attributes; all foreign keys resolve cleanly; child entities instantiate active simulation with full parity. | Parity verification passes across all entities; simulation initializes cleanly. |
+| **4** | **Canonical LWS entities are valid and reusable.** | Exporting a World and re-importing it into a fresh World via `lws_world_manifest_v1` restores all entities with 100% relational integrity; the imported world successfully instantiates a running simulation (`instantiateScenario`). | `src/living-world/import/manifest-importer.js`, `src/living-world/import/authoring.js` | `tests/living-world/lws-manifest-importer.test.js`, `tests/living-world/lws-authoring-bundle.test.js` | Re-imported world matches exported attributes; all foreign keys resolve cleanly; child entities instantiate active simulation with full parity. | Parity verification passes across all entities; simulation initializes cleanly. |
 
 ---
 
-## 18. Decision Register
+## 19. Literal Audit-Closure Matrix for All 22 Corrective Criteria
+
+| Criterion # | Original Finding | Correction Made | Exact Document Section | Evidence Source | Disposition |
+|:---:|---|---|---|---|:---:|
+| **1** | Verify zero-schema-change claim across all authored tables | Audited all 10 authored tables and proved zero migrations required (`PRAGMA user_version = 9` preserved) | Section 6.1 | `migrations/002_authored_model.js`, `migrations/009_environment_and_population.js` | **CLOSED & FROZEN** |
+| **2** | Distinguish 7 entity tables from 2 join tables | Table audit explicitly categorizes root entities, authored entities, rules, archetypes, configs, and join tables | Section 6.1 | Repository schema inspections | **CLOSED & FROZEN** |
+| **3** | Verify actual columns of every authored table | Enumerated full column list for all 10 tables directly from SQLite migration sources | Section 6.1 | Repository migration scripts | **CLOSED & FROZEN** |
+| **4** | Verify `extensions` column existence on each table | Verified `extensions` exists on 6 tables and is absent on 4 tables (`lws_world_rules`, `lws_ambient_archetypes`, `lws_character_factions`, `lws_scenario_characters`) | Section 6.1 | Migration DDL definitions | **CLOSED & FROZEN** |
+| **5** | Audit `lws_ambient_archetypes` separately | Inspected Migration 009; verified lack of `extensions` and documented composite archetype provenance | Section 6.1, 6.2 | `migrations/009_environment_and_population.js` | **CLOSED & FROZEN** |
+| **6** | Define stable provenance keys for all entity types | Specified `extensions.provenance` for tables with column; World-manifest composite keys for tables without column | Section 6.2 | Domain architecture & SQLite triggers | **CLOSED & FROZEN** |
+| **7** | Prove why schema changes are unnecessary | Detailed JSON-in-World-extensions persistence architecture for rules, archetypes, and join records | Section 6.2 | SQLite JSON support & repository evidence | **CLOSED & FROZEN** |
+| **8** | Reconcile conflict policies with canonical domain rules | Formally defined `REJECT`, `RENAME`, `REPLACE`, and `MERGE` with non-silent conflict rule | Section 7.2 | `DOMAIN_RULES.md`, `IMPORT_AND_NORMALIZATION.md` | **CLOSED & FROZEN** |
+| **9** | Separate identity collisions from semantic/classification conflicts | Established 3 distinct conflict categories with separate handling pathways | Section 7, 7.2 | Domain architecture | **CLOSED & FROZEN** |
+| **10** | Define active simulation replacement semantics | Formally proved in-flight safety via frozen `authored_snapshot` and soft-delete retention | Section 9.1, 9.2 | `migrations/003_simulation_runtime.js`, ADR-011 | **CLOSED & FROZEN** |
+| **11** | Entity-by-entity simulation reference matrix | Provided exhaustive matrix covering all 7 authored entities, prompt configs, and join tables | Section 9.2 | Repository prompt & runtime codebase | **CLOSED & FROZEN** |
+| **12** | Explicitly add freeform world/scenario import | Added dedicated `freeform-importer.js` and REST routes for unstructured text | Section 3.1, 16.2, 19 | Phase 11 roadmap scope | **CLOSED & FROZEN** |
+| **13** | Audit `lws_world_manifest_v1` scope | Formally classified manifest format as an Implementation-Level Design Enhancement | Section 3.2, 10.1 | Phase 11 architecture | **CLOSED & FROZEN** |
+| **14** | Define manifest parity comparison contract | Replaced vague parity with precise 8-step semantic and relational comparison algorithm | Section 10.3 | Domain verification model | **CLOSED & FROZEN** |
+| **15** | Character Card compatibility scope (V1/V2/V3) | Authored complete 22-field mapping table with types, normalizations, and preservation destinations | Section 11.1 | SillyTavern card specs V1/V2/V3 | **CLOSED & FROZEN** |
+| **16** | PNG `ccv3` / `chara` chunk extraction precedence | Documented `ccv3` precedence over `chara` reusing ST host infrastructure | Section 11.2 | `src/character-card-parser.js` | **CLOSED & FROZEN** |
+| **17** | Lorebook classification heuristics & threshold | Defined 6-dimensional scoring model ($S_{\text{rule}}, S_{\text{loc}}, S_{\text{fac}}, S_{\text{arch}}, S_{\text{char}}, S_{\text{lore}}$) and $\ge 0.80$ promotion threshold | Section 12.1, 12.2 | Domain rules & lorebook formats | **CLOSED & FROZEN** |
+| **18** | Preserve "Lore is not physical reality" invariant | Guaranteed flavor lore maps to `extensions.lorebook`, never automatically to physical rules | Section 5, 12.2 | `DOMAIN_RULES.md` Rule 10 | **CLOSED & FROZEN** |
+| **19** | AI normalizer authority boundary & negative tests | Sandboxed AI proposals behind validation; specified negative no-invention tests | Section 13.1 | Core Invariant, Phase 10 bridge | **CLOSED & FROZEN** |
+| **20** | Advisory preview & TOCTOU transaction defense | Specified transactional commit re-validation and stale-preview detection | Section 14 | SQLite transaction semantics | **CLOSED & FROZEN** |
+| **21** | File upload infrastructure & cleanup guarantees | Reused ST multer setup with mandatory `try ... finally` filesystem cleanup | Section 15.2 | `src/server-main.js` | **CLOSED & FROZEN** |
+| **22** | Exact 9-endpoint REST API transport contract | Documented full JSON schemas, status codes, error codes, and methods for all 9 routes | Section 16.2 | SillyTavern endpoint architecture | **CLOSED & FROZEN** |
+
+---
+
+## 20. Decision Register
 
 | Decision ID | Question | Options Considered | Classification | Decision & Rationale | Status |
 |---|---|---|---|---|---|
@@ -445,7 +695,7 @@ The acceptance criteria are derived directly from the four official Phase 11 acc
 | **DEC-1105** | Lorebook Classification Default | A: All entries become physical World Rules.<br>B: Only explicit rules become World Rules; general lore remains Lore/Flavor. | Domain Invariant | **Option B (Lore is Not Physical Reality):** Preserves domain rule that flavor lore does not become authoritative physical constraints. | **RESOLVED & FROZEN** |
 | **DEC-1106** | AI Normalization Authority Boundary | A: AI writes directly to SQLite.<br>B: AI produces untrusted candidate graph $\to$ Schema/Domain Validation $\to$ Preview $\to$ Explicit User Commit. | Domain Invariant | **Option B (Untrusted Proposal Sandboxing):** Strictly enforces Core Invariant. | **RESOLVED & FROZEN** |
 | **DEC-1107** | File Upload Infrastructure | A: Install new multer instance.<br>B: Reuse existing ST global multer setup (`request.file` in `src/server-main.js`). | Implementation Design | **Option B (Reuse ST Infrastructure):** Avoids redundant middleware and maintains native host cohesion. | **RESOLVED & FROZEN** |
-| **DEC-1108** | World Interchange Format | A: Ad-hoc JSON.<br>B: Formalized `lws_world_manifest_v1` specification. | Design Enhancement | **Option B (Formal Interchange Standard):** Guarantees lossless export/import round-tripping. | **RESOLVED & FROZEN** |
+| **DEC-1108** | World Interchange Format | A: Ad-hoc JSON.<br>B: Formalized `lws_world_manifest_v1` specification (JSON canonical + YAML safe parse). | Design Enhancement | **Option B (Formal Interchange Standard):** Guarantees semantic and relationally lossless export/import round-tripping. | **RESOLVED & FROZEN** |
 | **DEC-1109** | Merge Policy Semantics | A: Blind overwrite.<br>B: Explicit field-by-field non-destructive merge with tag unioning and provenance history appending. | Implementation Design | **Option B (Explicit Field Merge):** Prevents accidental field erasure during merges. | **RESOLVED & FROZEN** |
 | **DEC-1110** | Freeform Import Ownership | A: Integrated directly into card-importer.<br>B: Dedicated `freeform-importer.js` cooperating with `ai-normalizer.js`. | Architecture | **Option B (Dedicated Freeform Pipeline):** Clear separation of concerns between structured cards and unstructured text. | **RESOLVED & FROZEN** |
 | **DEC-1111** | Archive Formats (.byaf, .charx) Scope | A: Mandatory in Phase 11.<br>B: Optional / Deferred to future release. | Scope Boundary | **Option B (Deferred):** Phase 11 focuses on PNG and JSON card/world formats; complex archive bundles deferred. | **RESOLVED & FROZEN** |
@@ -453,31 +703,33 @@ The acceptance criteria are derived directly from the four official Phase 11 acc
 
 ---
 
-## 19. Exact Repository File Paths
+## 21. Exact Repository File Paths
 
 ### Source Files to Create:
-- `src/living-world/import/common.js` — Format detection, Unicode NFC normalization, prototype pollution filtering, text sanitation, and provenance builder.
+- `src/living-world/import/common.js` — Format detection, Unicode NFC normalization, prototype pollution filtering, text sanitization, and provenance builder.
 - `src/living-world/import/card-importer.js` — Character Card V1/V2/V3 JSON and PNG chunk parser, field normalizer, and lorebook extractor.
 - `src/living-world/import/worldinfo-importer.js` — World Info / Lorebook classifier, normalizer, and entity extractor (rules, locations, factions, archetypes, lore).
 - `src/living-world/import/freeform-importer.js` — Freeform text / Markdown outline parser and chunker.
-- `src/living-world/import/manifest-importer.js` — Canonical LWS World Manifest (`spec: 'lws_world_manifest_v1'`) serializer (export) and batch importer.
+- `src/living-world/import/manifest-importer.js` — Canonical LWS World Manifest (`spec: 'lws_world_manifest_v1'`) serializer (export) and batch importer (JSON + safe YAML).
 - `src/living-world/import/ai-normalizer.js` — Untrusted AI-assisted text extraction service using Phase 10 provider connection.
 - `src/living-world/import/conflicts.js` — Name collision detector and resolution policy executor (`reject`, `rename`, `replace`, `merge`).
-- `src/living-world/import/authoring.js` — High-level authoring orchestrator and atomic SQLite transaction manager.
+- `src/living-world/import/authoring.js` — High-level authoring orchestrator, TOCTOU re-validation, and atomic SQLite transaction manager.
 
-### Existing Files to Modify:
+### Documentation Files to Create:
+- `docs/living-world/decisions/ADR-019-import-normalization-and-authoring-workflow.md` — New Architecture Decision Record.
+
+### Existing Files to Modify (Upon Authorization):
 - `src/endpoints/living-world.js` — Mount 9 import, export, and preview REST endpoints.
 - `src/living-world/index.js` — Re-export import and authoring domain functions.
 - `docs/living-world/IMPORT_AND_NORMALIZATION.md` — Synchronized comprehensive reference.
-- `docs/living-world/decisions/ADR-019-import-normalization-and-authoring-workflow.md` — New ADR.
 - `docs/living-world/DOCUMENTATION_INDEX.md` — Link ADR-019 and updated docs.
 - `docs/living-world/PROJECT_STATE.md` — Update status upon authorized implementation.
 - `docs/living-world/AI_CHANGELOG.md` — Log change upon authorized implementation.
 
-### Test Files to Create:
+### Test Files to Create (Upon Authorization):
 - `tests/living-world/lws-card-importer.test.js` — V1, V2, V3 JSON and PNG card parsing, mapping, and extraction tests.
 - `tests/living-world/lws-worldinfo-importer.test.js` — Lorebook classification, confidence scoring, and rule/loc/faction extraction tests.
-- `tests/living-world/lws-manifest-importer.test.js` — Canonical manifest export/import 100% round-trip parity tests.
+- `tests/living-world/lws-manifest-importer.test.js` — Canonical manifest export/import round-trip parity tests.
 - `tests/living-world/lws-ai-normalizer.test.js` — Freeform text parsing, mock LLM bridge, and sandboxing tests.
 - `tests/living-world/lws-conflicts.test.js` — Verification of `REJECT`, `RENAME`, `REPLACE`, and `MERGE` policies.
 - `tests/living-world/lws-authoring-bundle.test.js` — Multi-entity atomic transactions, rollback on failure, and active simulation decoupling tests.
@@ -486,13 +738,13 @@ The acceptance criteria are derived directly from the four official Phase 11 acc
 
 ---
 
-## 20. Implementation Order
+## 22. Implementation Order
 
 1. **Phase 11 Planning Authorization:** Present planning artifact for formal user review and await explicit authorization.
 2. **Import Common & Security Utilities (`src/living-world/import/common.js`):** Implement format classification, Unicode NFC normalization, text sanitization, prototype pollution filtering, and provenance builder.
 3. **Character Card Importer (`src/living-world/import/card-importer.js`):** Implement V1, V2, V3 JSON and PNG metadata parser and field mapping logic.
 4. **World Info Importer (`src/living-world/import/worldinfo-importer.js`):** Implement lorebook parser, classification heuristics, confidence scoring, and entity extraction.
-5. **Canonical Manifest Importer & Serializer (`src/living-world/import/manifest-importer.js`):** Implement `lws_world_manifest_v1` export serializer and batch import parser.
+5. **Canonical Manifest Importer & Serializer (`src/living-world/import/manifest-importer.js`):** Implement `lws_world_manifest_v1` export serializer and batch import parser (JSON + safe YAML).
 6. **Freeform Importer (`src/living-world/import/freeform-importer.js`):** Implement text outline chunking and Markdown structure parser.
 7. **Conflict Resolution Service (`src/living-world/import/conflicts.js`):** Implement `reject`, `rename`, `replace`, and `merge` collision handlers.
 8. **AI-Assisted Normalizer (`src/living-world/import/ai-normalizer.js`):** Implement unstructured text extraction bridge using Phase 10 generation integration.
@@ -505,7 +757,7 @@ The acceptance criteria are derived directly from the four official Phase 11 acc
 
 ---
 
-## 21. Implementation Authorization Gate
+## 23. Implementation Authorization Gate
 
 > [!CAUTION]
 > **Phase 11 implementation is NOT authorized by this planning task. Explicit user authorization is required before implementation begins.**
