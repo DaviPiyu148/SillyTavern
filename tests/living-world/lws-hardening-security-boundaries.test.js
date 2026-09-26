@@ -78,7 +78,7 @@ describe('LWS Phase 13 Hardening — Security Boundaries & Trust Verification', 
         expect(Object.prototype.polluted).toBeUndefined();
     });
 
-    test('rejects path traversal attempts on backup trigger with 400 Bad Request', async () => {
+    test('rejects path traversal attempts on backup destination handling with 400 Bad Request', async () => {
         const res1 = await fetch(`${baseUrl}/api/living-world/admin/backup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
