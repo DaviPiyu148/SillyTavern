@@ -38,69 +38,70 @@ Status: IMPLEMENTED / VERIFIED
 Implemented authoritative social systems, dynamic directed relationships with exponential familiarity decay, causal relationship evidence, rumor propagation trees with strict topological integrity, runtime faction memberships and standing, causal character development with dual-store projection, extended multi-criteria social deliberation scoring, pure zero-SQL replay parity, and tri-tier REST transport for Living World Simulator (LWS):
 
 1. Created database migration `008_social_and_development.js` elevating schema version to `PRAGMA user_version = 8`:
-   - Exactly 5 new tables: `lws_relationships`, `lws_relationship_evidence`, `lws_social_information`, `lws_simulation_faction_memberships`, `lws_character_development_records`.
+   - Exactly 5 new tables: `lws_character_relationships`, `lws_relationship_evidence`, `lws_social_information`, `lws_character_faction_memberships`, `lws_character_development_records`.
    - Exactly 15 Phase 8 triggers (70 cumulative across Phase 4–8 tables, 80 cumulative across all tables):
-     1. `trg_lws_relationships_identity_immutable`: Enforces immutability of `simulation_id`, `source_character_id`, `target_character_id`.
-     2. `trg_lws_relationships_insert_integrity`: Enforces `source_character_id != target_character_id` and verifies both characters belong to simulation.
-     3. `trg_lws_relationships_no_delete`: Prohibits direct physical `DELETE` on relationships.
-     4. `trg_lws_rel_evidence_immutable`: Prohibits direct updates on `lws_relationship_evidence`.
-     5. `trg_lws_rel_evidence_no_delete`: Prohibits direct physical `DELETE` on `lws_relationship_evidence`.
-     6. `trg_lws_rel_evidence_insert_integrity`: Validates relationship and causal event belong to the same simulation.
-     7. `trg_lws_social_info_immutable`: Prohibits direct updates on `lws_social_information`.
-     8. `trg_lws_social_info_no_delete`: Prohibits direct physical `DELETE` on `lws_social_information`.
-     9. `trg_lws_social_info_insert_integrity`: Validates simulation lineage, depth bounds ($0 \le d \le 5$), root self-reference or parent link consistency, transmitter/recipient simulation membership, and causal event lineage.
-     10. `trg_lws_faction_members_sim_immutable`: Enforces immutability of `simulation_id`, `simulation_character_id`, and `faction_id`.
-     11. `trg_lws_faction_members_insert_integrity`: Validates character belongs to simulation, and faction belongs to simulation's world.
-     12. `trg_lws_faction_members_no_delete`: Prohibits direct physical `DELETE` on faction memberships.
-     13. `trg_lws_dev_records_immutable`: Prohibits direct updates on `lws_character_development_records`.
-     14. `trg_lws_dev_records_no_delete`: Prohibits direct physical `DELETE` on `lws_character_development_records`.
-     15. `trg_lws_dev_records_insert_integrity`: Validates character and causal event belong to same simulation, enforces mandatory causal_event_id for non-director trigger categories.
+     1. `trg_lws_character_relationships_no_self_rel`: Enforces `source_character_id != target_character_id`.
+     2. `trg_lws_character_relationships_same_sim`: Validates that source and target characters belong to the same simulation.
+     3. `trg_lws_character_relationships_immutability`: Enforces immutability of `simulation_id`, `source_character_id`, and `target_character_id`.
+     4. `trg_lws_character_relationships_no_delete`: Prohibits direct physical `DELETE` on relationships (requires soft-delete).
+     5. `trg_lws_relationship_evidence_same_sim`: Validates that relationship, characters, and causal event belong to the same simulation.
+     6. `trg_lws_relationship_evidence_no_update`: Prohibits direct updates on `lws_relationship_evidence`.
+     7. `trg_lws_relationship_evidence_no_delete`: Prohibits direct physical `DELETE` on `lws_relationship_evidence`.
+     8. `trg_lws_social_information_same_sim`: Validates that parent, root, originator, transmitter, recipient, and causal event belong to the simulation.
+     9. `trg_lws_social_information_no_update`: Prohibits direct updates on `lws_social_information`.
+     10. `trg_lws_social_information_no_delete`: Prohibits direct physical `DELETE` on `lws_social_information`.
+     11. `trg_lws_character_faction_memberships_same_sim`: Validates that character belongs to simulation, and faction belongs to simulation's world.
+     12. `trg_lws_character_faction_memberships_immutability`: Enforces immutability of `simulation_id`, `simulation_character_id`, and `faction_id`.
+     13. `trg_lws_character_faction_memberships_no_delete`: Prohibits direct physical `DELETE` on faction memberships.
+     14. `trg_lws_character_development_records_no_update`: Prohibits direct updates on `lws_character_development_records`.
+     15. `trg_lws_character_development_records_no_delete`: Prohibits direct physical `DELETE` on `lws_character_development_records`.
    - Exactly 10 new indexes (41 cumulative across Phase 4–8 tables):
-     1. `idx_lws_relationships_source_target`: Unique index on `lws_relationships(simulation_id, source_character_id, target_character_id)`.
-     2. `idx_lws_relationships_sim_source`: Index on `lws_relationships(simulation_id, source_character_id)`.
-     3. `idx_lws_relationships_sim_target`: Index on `lws_relationships(simulation_id, target_character_id)`.
-     4. `idx_lws_rel_evidence_rel_time`: Index on `lws_relationship_evidence(relationship_id, fictional_time DESC)`.
-     5. `idx_lws_social_info_sim_subj`: Index on `lws_social_information(simulation_id, subject_key)`.
-     6. `idx_lws_social_info_root`: Index on `lws_social_information(root_social_information_id)`.
-     7. `idx_lws_social_info_recip_time`: Index on `lws_social_information(recipient_character_id, fictional_time DESC)`.
-     8. `idx_lws_faction_members_char`: Partial unique index on `lws_simulation_faction_memberships(simulation_id, simulation_character_id, faction_id) WHERE is_active = 1`.
-     9. `idx_lws_dev_records_sim_char`: Index on `lws_character_development_records(simulation_id, simulation_character_id, fictional_time DESC)`.
-     10. `idx_lws_dev_records_type`: Index on `lws_character_development_records(simulation_id, change_type)`.
+     1. `idx_lws_rel_unique_directional`: Unique index on `lws_character_relationships(simulation_id, source_character_id, target_character_id) WHERE deleted_at IS NULL`.
+     2. `idx_lws_rel_source`: Index on `lws_character_relationships(simulation_id, source_character_id)`.
+     3. `idx_lws_rel_target`: Index on `lws_character_relationships(simulation_id, target_character_id)`.
+     4. `idx_lws_rel_evidence_rel`: Index on `lws_relationship_evidence(relationship_id, fictional_time DESC)`.
+     5. `idx_lws_rel_evidence_sim_time`: Index on `lws_relationship_evidence(simulation_id, fictional_time DESC)`.
+     6. `idx_lws_social_info_sim_subj`: Index on `lws_social_information(simulation_id, subject_key)`.
+     7. `idx_lws_social_info_tree`: Index on `lws_social_information(root_social_information_id, parent_social_information_id)`.
+     8. `idx_lws_faction_mem_unique`: Partial unique index on `lws_character_faction_memberships(simulation_id, simulation_character_id, faction_id) WHERE deleted_at IS NULL`.
+     9. `idx_lws_faction_mem_char`: Index on `lws_character_faction_memberships(simulation_id, simulation_character_id)`.
+     10. `idx_lws_dev_records_char_time`: Index on `lws_character_development_records(simulation_character_id, fictional_time DESC)`.
    - Cumulative database inventory: Exactly 31 tables, 70 triggers on Phase 4–8 tables (80 triggers system-wide), 41 indexes on Phase 4–8 tables.
 
 2. Implemented 6 Social & Development Modules under `src/living-world/social/`:
-   - `common.js`: UUID validation, bounds checks, timestamp helpers, exponential decay helpers ($F(t) = \text{round}(F_0 \cdot e^{-(t - 7\text{d})/\tau})$, $\tau = 30\,\text{d}$), and taxonomy validations.
-   - `relationships.js`: Directed dynamic relationships (affinity, trust, respect, familiarity, relationship_type, sentiment_summary), decaying familiarity, and atomic updates.
-   - `evidence.js`: Causal relationship evidence linked to authoritative simulation events (`delta_affinity`, `delta_trust`, `delta_respect`, `delta_familiarity`, `reason_summary`).
+   - `common.js`: UUID validation, bounds checks, timestamp helpers, exponential decay helpers ($F(t) = \text{round}(F_0 \cdot e^{-(t - 7\text{d})/\tau})$, $\tau = 30\,\text{d}$), and taxonomy validations for 5 canonical relationship dimensions (`trust`, `affection`, `familiarity`, `respect`, `loyalty`).
+   - `relationships.js`: Directed dynamic relationships (trust, affection, respect, familiarity, loyalty, last_interaction_fictional_time), decaying familiarity, and atomic updates.
+   - `evidence.js`: Causal relationship evidence linked to authoritative simulation events (`delta_trust`, `delta_affection`, `delta_familiarity`, `delta_respect`, `delta_loyalty`, `interaction_type`, `narrative_rationale`).
    - `rumors.js`: Rumors, social claims, veracity, confidence, and propagation trees with strict 17-invariant topology enforcement (depth bounding $0..5$, root self-reference, parent-child depth $+1$, root lineage continuity, same-simulation membership). Includes subjective belief adoption on received claims.
-   - `factions.js`: Runtime faction memberships, ranks, titles, standing ($[-100, 100]$), and faction-authored to runtime snapshotting.
+   - `factions.js`: Runtime faction memberships, ranks, titles, standing ($[-100, 100]$), loyalty scores, and faction-authored to runtime snapshotting.
    - `development.js`: Causal character development records (`value_shift`, `baseline_need_shift`, `disposition_shift`, `habit_shift`), 5 trigger categories (`acute_trauma`, `sustained_experience`, `social_reinforcement`, `cognitive_dissonance`, `director_override`), and dual-store projection to runtime state and Phase 7 tables.
 
 3. Extended Deliberation & Cognition Scoring (`src/living-world/cognition/deliberation.js`):
-   - Added multi-criteria social utility scoring ($U_{\text{social}}$) combining relationship affinity/trust/respect, faction alignment/standing, and social norms:
-     $$U_{\text{total}} = 0.30 \cdot U_{\text{needs}} + 0.30 \cdot U_{\text{values}} + 0.15 \cdot U_{\text{emotion}} + 0.15 \cdot U_{\text{social}} + 0.10 \cdot U_{\text{feasibility}}$$
+   - Added multi-criteria social utility scoring ($U_{\text{social}}$) evaluating relationship affection, trust, loyalty, respect, and faction alignment:
+     $$U_{\text{action}} = 0.35 \cdot U_{\text{need}} + 0.30 \cdot U_{\text{goal}} + U_{\text{social}} + 0.20 \cdot A_{\text{val}} + 0.15 \cdot B_{\text{emo}} - \text{Penalties}$$
+     where Pro-Social: $U_{\text{social}} = 0.35 \cdot \text{affection} + 0.35 \cdot \text{trust} + 0.20 \cdot \text{loyalty} + 0.10 \cdot \text{respect} + \text{sameFactionBonus}$
+     and Hostile: $U_{\text{social}} = -0.40 \cdot \text{affection} - 0.40 \cdot \text{trust} - 0.20 \cdot \text{loyalty} - \text{sameFactionBonus}$
    - Strict moral veto precedence: Hard moral constraints ($\ge +75$) unconditionally veto prohibited candidate actions regardless of high social or need utility.
 
 4. Pure Zero-SQL Replay & Parity Engine (`src/living-world/events/replay.js`):
    - `simulationReducer` reconstructs relationships, relationship evidence, social information, faction memberships, development records, and subjective beliefs in pure memory with zero SQL queries.
    - `verifySimulationParity` proves 100% tested field-level parity against SQLite database state across all Phase 8 tables.
 
-5. Mounted Exact 12 Tri-Tier REST Endpoints in `src/endpoints/living-world.js`:
-   - Observer Tier:
-     - `GET /api/living-world/simulations/:simLwsId/relationships`
-     - `GET /api/living-world/simulations/:simLwsId/relationships/:sourceCharLwsId/:targetCharLwsId/evidence`
-     - `GET /api/living-world/simulations/:simLwsId/rumors`
-     - `GET /api/living-world/simulations/:simLwsId/rumors/:rumorLwsId/tree`
-     - `GET /api/living-world/simulations/:simLwsId/factions`
-     - `GET /api/living-world/simulations/:simLwsId/factions/:factionLwsId/members`
-     - `GET /api/living-world/simulations/:simLwsId/development/timeline`
-   - Character-Subjective Tier:
-     - `GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/social-view`
-   - Director Tier:
-     - `POST /api/living-world/simulations/:simLwsId/relationships/modify`
-     - `POST /api/living-world/simulations/:simLwsId/rumors/inject`
-     - `POST /api/living-world/simulations/:simLwsId/factions/memberships/override`
-     - `POST /api/living-world/simulations/:simLwsId/development/record-override`
+5. Mounted Tri-Tier REST Endpoints in `src/endpoints/living-world.js`:
+   - Observer Tier (Read-Only Ground Truth):
+     - `GET /api/living-world/simulations/:simLwsId/social/graph`
+     - `GET /api/living-world/simulations/:simLwsId/social-information`
+     - `GET /api/living-world/simulations/:simLwsId/social-information/:infoLwsId/tree`
+     - `GET /api/living-world/simulations/:simLwsId/faction-memberships`
+   - Character-Subjective Tier (Filtered Perspective):
+     - `GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/relationships`
+     - `GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/relationships/:targetCharLwsId`
+     - `GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/relationships/:targetCharLwsId/evidence`
+     - `GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/factions`
+     - `GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/development`
+     - `GET /api/living-world/simulations/:simLwsId/characters/:charLwsId/known-rumors`
+   - Director Tier (Authoritative State Mutations):
+     - `POST /api/living-world/simulations/:simLwsId/social-interventions` (unified Director intervention endpoint executing validated `DIRECTOR_MODIFY_STATE` event-ledger transitions for relationships, rumors, factions, and development records)
 
 6. Authored ADR-016 in `docs/living-world/decisions/ADR-016-social-systems-and-character-development.md`.
 

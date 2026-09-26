@@ -230,38 +230,38 @@ Schema changes require explicit, versioned migrations and verification.
   - Pure in-memory zero-SQL replay engine expanded to fold all Phase 7 cognition state transitions with 100% tested field-level parity for the declared Phase 7 cognition state against SQLite database state.
 - `008_social_and_development`: Social systems, relationships, rumors, factions, and character development (`user_version = 8`):
   - Exactly 5 new tables:
-    1. `lws_relationships`: Directed dynamic character relationships (`id`, `lws_id`, `simulation_id`, `source_character_id`, `target_character_id`, `affinity`, `trust`, `respect`, `familiarity`, `relationship_type`, `sentiment_summary`, `last_interaction_fictional_time`, `created_at`, `updated_at`).
-    2. `lws_relationship_evidence`: Causal evidence backing relationship metrics (`id`, `lws_id`, `simulation_id`, `relationship_id`, `event_id`, `fictional_time`, `delta_affinity`, `delta_trust`, `delta_respect`, `delta_familiarity`, `reason_summary`, `created_at`).
-    3. `lws_social_information`: Rumors, claims, information propagation, and social knowledge trees (`id`, `lws_id`, `simulation_id`, `originator_character_id`, `transmitter_character_id`, `recipient_character_id`, `parent_social_information_id`, `root_social_information_id`, `subject_key`, `topic`, `claim_statement`, `veracity`, `confidence_score`, `transmission_depth`, `causal_event_id`, `fictional_time`, `created_at`).
-    4. `lws_simulation_faction_memberships`: Runtime faction memberships, ranks, and standing (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `faction_id`, `rank_level`, `title`, `standing`, `joined_fictional_time`, `is_active`, `created_at`, `updated_at`).
-    5. `lws_character_development_records`: Causal historical development records, milestones, value shifts, habit shifts, and baseline need shifts (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `change_type`, `trigger_category`, `description`, `causal_event_id`, `fictional_time`, `value_shift`, `baseline_need_shift`, `disposition_shift`, `habit_shift`, `created_at`).
+    1. `lws_character_relationships`: Directed dynamic character relationships (`id`, `lws_id`, `simulation_id`, `source_character_id`, `target_character_id`, `trust`, `affection`, `familiarity`, `respect`, `loyalty`, `last_interaction_fictional_time`, `created_at`, `updated_at`, `deleted_at`).
+    2. `lws_relationship_evidence`: Causal evidence backing relationship metrics (`id`, `lws_id`, `simulation_id`, `relationship_id`, `source_character_id`, `target_character_id`, `causal_event_id`, `fictional_time`, `delta_trust`, `delta_affection`, `delta_familiarity`, `delta_respect`, `delta_loyalty`, `interaction_type`, `narrative_rationale`, `created_at`).
+    3. `lws_social_information`: Rumors, claims, information propagation, and social knowledge trees (`id`, `lws_id`, `simulation_id`, `parent_social_information_id`, `root_social_information_id`, `originator_character_id`, `transmitter_character_id`, `recipient_character_id`, `causal_event_id`, `subject_key`, `topic`, `claim_statement`, `veracity`, `ground_truth_event_id`, `distortion_level`, `transmission_depth`, `confidence_score`, `fictional_time`, `created_at`).
+    4. `lws_character_faction_memberships`: Runtime faction memberships, ranks, and standing (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `faction_id`, `rank_role`, `standing`, `loyalty_score`, `membership_status`, `joined_fictional_time`, `created_at`, `updated_at`, `deleted_at`).
+    5. `lws_character_development_records`: Causal historical development records, milestones, value shifts, habit shifts, and baseline need shifts (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `dimension_category`, `dimension_key`, `previous_value`, `new_value`, `delta`, `trigger_category`, `causal_event_ids`, `stability`, `fictional_time`, `created_at`).
   - Exactly 15 Phase 8 triggers (70 cumulative across Phase 4–8 tables, 80 cumulative across all tables):
-    1. `trg_lws_relationships_identity_immutable`: Enforces immutability of `simulation_id`, `source_character_id`, `target_character_id`.
-    2. `trg_lws_relationships_insert_integrity`: Enforces source != target and that both characters belong to the same simulation.
-    3. `trg_lws_relationships_no_delete`: Prohibits direct physical `DELETE` on relationships.
-    4. `trg_lws_rel_evidence_immutable`: Prohibits direct updates on `lws_relationship_evidence`.
-    5. `trg_lws_rel_evidence_no_delete`: Prohibits direct physical `DELETE` on `lws_relationship_evidence`.
-    6. `trg_lws_rel_evidence_insert_integrity`: Validates relationship and causal event belong to the same simulation.
-    7. `trg_lws_social_info_immutable`: Prohibits direct updates on `lws_social_information`.
-    8. `trg_lws_social_info_no_delete`: Prohibits direct physical `DELETE` on `lws_social_information`.
-    9. `trg_lws_social_info_insert_integrity`: Validates simulation lineage, depth bounds, root self-reference or parent link consistency, transmitter/recipient simulation membership, and causal event lineage.
-    10. `trg_lws_faction_members_sim_immutable`: Enforces immutability of `simulation_id`, `simulation_character_id`, and `faction_id`.
-    11. `trg_lws_faction_members_insert_integrity`: Validates character belongs to simulation, and faction belongs to simulation's world.
-    12. `trg_lws_faction_members_no_delete`: Prohibits direct physical `DELETE` on faction memberships.
-    13. `trg_lws_dev_records_immutable`: Prohibits direct updates on `lws_character_development_records`.
-    14. `trg_lws_dev_records_no_delete`: Prohibits direct physical `DELETE` on `lws_character_development_records`.
-    15. `trg_lws_dev_records_insert_integrity`: Validates character and causal event belong to same simulation, enforces mandatory causal_event_id for non-director trigger categories.
+    1. `trg_lws_character_relationships_no_self_rel`: Enforces `source_character_id != target_character_id`.
+    2. `trg_lws_character_relationships_same_sim`: Validates that source and target characters belong to the same simulation.
+    3. `trg_lws_character_relationships_immutability`: Enforces immutability of `simulation_id`, `source_character_id`, and `target_character_id`.
+    4. `trg_lws_character_relationships_no_delete`: Prohibits direct physical `DELETE` on relationships (requires soft-delete).
+    5. `trg_lws_relationship_evidence_same_sim`: Validates that relationship, characters, and causal event belong to the same simulation.
+    6. `trg_lws_relationship_evidence_no_update`: Prohibits direct updates on `lws_relationship_evidence`.
+    7. `trg_lws_relationship_evidence_no_delete`: Prohibits direct physical `DELETE` on `lws_relationship_evidence`.
+    8. `trg_lws_social_information_same_sim`: Validates that parent, root, originator, transmitter, recipient, and causal event belong to the simulation.
+    9. `trg_lws_social_information_no_update`: Prohibits direct updates on `lws_social_information`.
+    10. `trg_lws_social_information_no_delete`: Prohibits direct physical `DELETE` on `lws_social_information`.
+    11. `trg_lws_character_faction_memberships_same_sim`: Validates that character belongs to simulation, and faction belongs to simulation's world.
+    12. `trg_lws_character_faction_memberships_immutability`: Enforces immutability of `simulation_id`, `simulation_character_id`, and `faction_id`.
+    13. `trg_lws_character_faction_memberships_no_delete`: Prohibits direct physical `DELETE` on faction memberships.
+    14. `trg_lws_character_development_records_no_update`: Prohibits direct updates on `lws_character_development_records`.
+    15. `trg_lws_character_development_records_no_delete`: Prohibits direct physical `DELETE` on `lws_character_development_records`.
   - Exactly 10 new indexes (41 cumulative across Phase 4–8 tables):
-    1. `idx_lws_relationships_source_target`: Unique index on `lws_relationships(simulation_id, source_character_id, target_character_id)`.
-    2. `idx_lws_relationships_sim_source`: Index on `lws_relationships(simulation_id, source_character_id)`.
-    3. `idx_lws_relationships_sim_target`: Index on `lws_relationships(simulation_id, target_character_id)`.
-    4. `idx_lws_rel_evidence_rel_time`: Index on `lws_relationship_evidence(relationship_id, fictional_time DESC)`.
-    5. `idx_lws_social_info_sim_subj`: Index on `lws_social_information(simulation_id, subject_key)`.
-    6. `idx_lws_social_info_root`: Index on `lws_social_information(root_social_information_id)`.
-    7. `idx_lws_social_info_recip_time`: Index on `lws_social_information(recipient_character_id, fictional_time DESC)`.
-    8. `idx_lws_faction_members_char`: Partial unique index on `lws_simulation_faction_memberships(simulation_id, simulation_character_id, faction_id) WHERE is_active = 1`.
-    9. `idx_lws_dev_records_sim_char`: Index on `lws_character_development_records(simulation_id, simulation_character_id, fictional_time DESC)`.
-    10. `idx_lws_dev_records_type`: Index on `lws_character_development_records(simulation_id, change_type)`.
+    1. `idx_lws_rel_unique_directional`: Unique index on `lws_character_relationships(simulation_id, source_character_id, target_character_id) WHERE deleted_at IS NULL`.
+    2. `idx_lws_rel_source`: Index on `lws_character_relationships(simulation_id, source_character_id)`.
+    3. `idx_lws_rel_target`: Index on `lws_character_relationships(simulation_id, target_character_id)`.
+    4. `idx_lws_rel_evidence_rel`: Index on `lws_relationship_evidence(relationship_id, fictional_time DESC)`.
+    5. `idx_lws_rel_evidence_sim_time`: Index on `lws_relationship_evidence(simulation_id, fictional_time DESC)`.
+    6. `idx_lws_social_info_sim_subj`: Index on `lws_social_information(simulation_id, subject_key)`.
+    7. `idx_lws_social_info_tree`: Index on `lws_social_information(root_social_information_id, parent_social_information_id)`.
+    8. `idx_lws_faction_mem_unique`: Partial unique index on `lws_character_faction_memberships(simulation_id, simulation_character_id, faction_id) WHERE deleted_at IS NULL`.
+    9. `idx_lws_faction_mem_char`: Index on `lws_character_faction_memberships(simulation_id, simulation_character_id)`.
+    10. `idx_lws_dev_records_char_time`: Index on `lws_character_development_records(simulation_character_id, fictional_time DESC)`.
   - Cumulative database inventory: Exactly 31 tables (1 Phase 1 table `lws_meta` + 9 Phase 2 tables + 2 Phase 3 tables + 2 Phase 4 tables + 2 Phase 5 tables + 5 Phase 6 tables + 5 Phase 7 tables + 5 Phase 8 tables = 31 total tables), exactly 70 triggers on Phase 4–8 tables (80 triggers system-wide), and exactly 41 indexes on Phase 4–8 tables.
   - Event-backed state transitions: All social and character development mutations execute strictly via `COMMUNICATE`, `UPDATE_RUNTIME_STATE`, `DIRECTOR_MODIFY_STATE`, `COMBAT_ACTION`, `TRANSFER_ITEM`, and `TIME_ADVANCE`.
   - Pure in-memory zero-SQL replay engine expanded to fold all Phase 8 social and development state transitions with 100% tested field-level parity for relationships, evidence, social information, faction memberships, development records, and subjective beliefs against SQLite database state.
