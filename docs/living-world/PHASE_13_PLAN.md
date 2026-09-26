@@ -233,15 +233,22 @@ The authoritative database catalog after running sequential migrations ($001 \to
 - **61 User-Created Indexes** (Excluding SQLite internal `sqlite_autoindex_%` objects; 106 total index catalog objects).
 
 ### 5.9 Authoritative REST Endpoint Inventory (126 Endpoints)
-The security fuzzing suite (`lws-hardening-security-boundaries.test.js`) audits the complete inventory of 126 endpoints (123 existing LWS endpoints + 3 Phase 13 diagnostic endpoints):
-- **Worlds & Authoring:** 12 endpoints (CRUD for worlds, characters, locations, factions, memberships, world-rules, scenarios, scenario-characters, prompt-configs, ambient-archetypes).
-- **Simulations & Runtime:** 35 endpoints (Simulation lifecycle, simulation-characters, events, narrative turns, replay parity, time-advance, scheduled events, routines, camera, subjective/observer perspectives).
-- **Cognition & Decisional:** 19 endpoints (Perceptions, knowledge, memories, memory retrieval, beliefs, cognition summary, needs, goals, intentions, values, deliberation).
-- **Social Graph & Dynamics:** 11 endpoints (Social graph export, social information/rumor tree, faction memberships, relationships, relationship evidence, development records, known rumors, social interventions).
-- **Environment & Population:** 12 endpoints (Location environment, operational state, ambient population, population tiers, promoted entities, perceived environment, environmental interventions, tier promotions).
-- **Prompt Compilation & Generation:** 2 endpoints (Prompt context build, simulation turn generate).
-- **Import & Export:** 9 endpoints (Character card preview/import, lorebook preview/import, freeform outline preview/import, world manifest preview/commit/export).
-- **Phase 13 Observability & Diagnostics:** 3 endpoints (`GET /health`, `GET /diagnostics`, `POST /admin/backup`).
+The LWS REST API mounted in `src/endpoints/living-world.js` comprises exactly 126 endpoints across all 13 phases (123 pre-Phase 13 routes + 3 Phase 13 routes):
+- **Phase 1 (Host Foundation & Status):** 2 endpoints (`GET /status`, `POST /ping`).
+- **Phase 2 (Authored World & Character Models):** 39 endpoints (CRUD & management for worlds [5], characters [5], locations [5], factions & memberships [8], world rules [5], scenarios & roster [8], prompt config [3]).
+- **Phase 3 (Simulation Runtime & Persistence):** 10 endpoints (Simulations CRUD [5], Simulation Characters CRUD [5]).
+- **Phase 4 (Events, Authority & Narrative Turns):** 7 endpoints (Events [3], Narrative Turns [3], Simulation Replay Verify [1]).
+- **Phase 5 (Time, Schedules, Routines & Travel):** 8 endpoints (Time advance [1], Scheduled Events lifecycle [5], Routine blocks [2]).
+- **Phase 6 (Perception, Knowledge, Memories, Cameras & Perspectives):** 13 endpoints (Perceptions [2], Knowledge [3], Memories [2], Beliefs [2], Cameras [2], Perspectives [2]).
+- **Phase 7 (Cognition, Needs, Goals, Intentions, Values, Deliberation):** 9 endpoints (Cognition summary [1], Needs [2], Goals [3], Intentions [1], Values [1], Deliberation [1]).
+- **Phase 8 (Social Graphs, Relationships, Rumors, Factions, Development):** 11 endpoints (Social graph [1], Social info / rumors [2], Faction memberships [1], Relationships & evidence [3], Character factions [1], Development records [1], Known rumors [1], Social interventions [1]).
+- **Phase 9 (Population Tiers, Ephemeral Ambient, Environment, Operations):** 13 endpoints (Ambient archetypes CRUD [5], Location environment [1], Operational state [1], Ambient population [1], Population tiers [1], Promoted entities [1], Perceived environment [1], Environment interventions [1], Promotions [1]).
+- **Phase 10 (Prompt Compilation & Generation):** 2 endpoints (`POST /simulations/:simLwsId/prompt-context/build`, `POST /simulations/:simLwsId/generate`).
+- **Phase 11 (Import, Normalization & Manifest Pipeline):** 9 endpoints (Character preview/import [2], WorldInfo preview/import [2], Freeform preview/import [2], Manifest preview/commit [2], Manifest export [1]).
+- **Phase 12 (Native SillyTavern User Workflow & Slash Commands):** 0 backend REST endpoints (Client-side native UI subsystem, CSS, templates, state store, and 7 native slash commands).
+- **Phase 13 (Observability, Diagnostics & Hardening):** 3 endpoints (`GET /health`, `GET /diagnostics`, `POST /admin/backup`).
+
+Total: Exactly 126 REST endpoints ($2 + 39 + 10 + 7 + 8 + 13 + 9 + 11 + 13 + 2 + 9 + 0 + 3 = 126$).
 
 ### 5.10 Authoritative Source Audit Evidence
 All numbers, contracts, and matrices specified herein are grounded in direct audit of the following repository sources:

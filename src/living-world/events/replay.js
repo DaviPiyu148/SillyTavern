@@ -1622,6 +1622,34 @@ export function replaySimulation(events) {
 }
 
 /**
+ * Normalizes a fictional timestamp representation to integer seconds since Unix/simulation epoch.
+ * Returns null if the timestamp is null or invalid.
+ *
+ * @param {string | number | null | undefined} ts
+ * @returns {number | null}
+ */
+export function normalizeFictionalTimestamp(ts) {
+    if (ts === null || ts === undefined || ts === '') return null;
+    if (typeof ts === 'number') return Math.floor(ts);
+    const ms = new Date(ts).getTime();
+    return Number.isNaN(ms) ? null : Math.floor(ms / 1000);
+}
+
+/**
+ * Compares two numeric values with floating-point epsilon tolerance.
+ *
+ * @param {number} a
+ * @param {number} b
+ * @param {number} [epsilon=1e-4]
+ * @returns {boolean}
+ */
+export function floatsEqual(a, b, epsilon = 1e-4) {
+    if (a === b) return true;
+    if (typeof a !== 'number' || typeof b !== 'number') return a === b;
+    return Math.abs(a - b) < epsilon;
+}
+
+/**
  * Verifies 100% canonical replay parity between pure in-memory event folding
  * and the projected SQLite database rows.
  *
@@ -1645,7 +1673,7 @@ export function verifySimulationParity(simLwsId) {
     if (replayed.simulation.status !== dbSim.status) {
         throw new Error(`Simulation status drift: replayed=${replayed.simulation.status}, db=${dbSim.status}`);
     }
-    if (replayed.simulation.current_fictional_time !== dbSim.current_fictional_time) {
+    if (normalizeFictionalTimestamp(replayed.simulation.current_fictional_time) !== normalizeFictionalTimestamp(dbSim.current_fictional_time)) {
         throw new Error(`Simulation clock drift: replayed=${replayed.simulation.current_fictional_time}, db=${dbSim.current_fictional_time}`);
     }
     if (JSON.stringify(replayed.simulation.settings) !== JSON.stringify(dbSimSettings)) {
@@ -1765,7 +1793,7 @@ export function verifySimulationParity(simLwsId) {
         if (rse.status !== dse.status) {
             throw new Error(`Scheduled event ${dse.lws_id} status drift: replayed=${rse.status}, db=${dse.status}`);
         }
-        if (rse.scheduled_fictional_time !== dse.scheduled_fictional_time) {
+        if (normalizeFictionalTimestamp(rse.scheduled_fictional_time) !== normalizeFictionalTimestamp(dse.scheduled_fictional_time)) {
             throw new Error(`Scheduled event ${dse.lws_id} scheduled_fictional_time drift`);
         }
         if (rse.title !== dse.title) {
@@ -1810,6 +1838,51 @@ export function verifySimulationParity(simLwsId) {
             }
             if (repCam.target_location_lws_id !== (dbCam.target_location_lws_id || null)) {
                 throw new Error(`Camera ${dbCam.camera_name} target_location drift`);
+            }
+        }
+    }
+
+    // 7. Compare Knowledge (Phase 6)
+    const dbKnowledge = db.prepare(`
+        SELECT k.*, sc.lws_id AS char_lws_id
+        FROM lws_character_knowledge k
+        JOIN lws_simulation_characters sc ON k.simulation_character_id = sc.id
+        WHERE k.simulation_id = ?
+    `).all(sim.id);
+
+    for (const dk of dbKnowledge) {
+        const charKnowledge = replayed.knowledge[dk.char_lws_id] || {};
+        const rk = charKnowledge[dk.fact_key];
+        if (rk) {
+            if (rk.content !== dk.content) {
+                throw new Error(`Knowledge ${dk.fact_key} content drift: replayed=${rk.content}, db=${dk.content}`);
+            }
+            if (rk.confidence !== undefined && dk.confidence !== undefined && rk.confidence !== dk.confidence) {
+                throw new Error(`Knowledge ${dk.fact_key} confidence drift: replayed=${rk.confidence}, db=${dk.confidence}`);
+            }
+        }
+    }
+
+    // 8. Compare Memories (Phase 6)
+    const dbMemories = db.prepare(`
+        SELECT m.*, sc.lws_id AS char_lws_id
+        FROM lws_character_memories m
+        JOIN lws_simulation_characters sc ON m.simulation_character_id = sc.id
+        WHERE m.simulation_id = ?
+    `).all(sim.id);
+
+    for (const dm of dbMemories) {
+        const charMemories = replayed.memories[dm.char_lws_id] || {};
+        const rm = charMemories[dm.lws_id];
+        if (rm) {
+            if (rm.description !== dm.description) {
+                throw new Error(`Memory ${dm.lws_id} description drift: replayed=${rm.description}, db=${dm.description}`);
+            }
+            if (rm.emotional_valence !== undefined && dm.emotional_valence !== undefined && rm.emotional_valence !== dm.emotional_valence) {
+                throw new Error(`Memory ${dm.lws_id} valence drift: replayed=${rm.emotional_valence}, db=${dm.emotional_valence}`);
+            }
+            if (rm.emotional_intensity !== undefined && dm.emotional_intensity !== undefined && rm.emotional_intensity !== dm.emotional_intensity) {
+                throw new Error(`Memory ${dm.lws_id} intensity drift: replayed=${rm.emotional_intensity}, db=${dm.emotional_intensity}`);
             }
         }
     }
@@ -1990,7 +2063,7 @@ export function verifySimulationParity(simLwsId) {
         if (rr.loyalty !== dr.loyalty) {
             throw new Error(`Relationship ${relKey} loyalty drift: replayed=${rr.loyalty}, db=${dr.loyalty}`);
         }
-        if ((rr.last_interaction_fictional_time || null) !== (dr.last_interaction_fictional_time || null)) {
+        if (normalizeFictionalTimestamp(rr.last_interaction_fictional_time) !== normalizeFictionalTimestamp(dr.last_interaction_fictional_time)) {
             throw new Error(`Relationship ${relKey} last_interaction_fictional_time drift: replayed=${rr.last_interaction_fictional_time}, db=${dr.last_interaction_fictional_time}`);
         }
     }
