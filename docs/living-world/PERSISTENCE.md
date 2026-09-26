@@ -267,40 +267,40 @@ Schema changes require explicit, versioned migrations and verification.
   - Pure in-memory zero-SQL replay engine expanded to fold all Phase 8 social and development state transitions with 100% tested field-level parity for relationships, evidence, social information, faction memberships, development records, and subjective beliefs against SQLite database state.
 - `009_environment_and_population`: Living world, population tiers, environmental dynamics, operational states, and emergence (`user_version = 9`):
   - Exactly 5 new tables:
-    1. `lws_location_environmental_profiles`: Location environmental conditions (`id`, `lws_id`, `simulation_id`, `location_id`, `lighting_level`, `crowd_density`, `noise_level`, `air_quality`, `ambient_capacity`, `last_updated_fictional_time`, `created_at`, `updated_at`, `deleted_at`).
-    2. `lws_location_operational_states`: Operational status history and active state (`id`, `lws_id`, `simulation_id`, `location_id`, `operational_state`, `accessibility`, `movement_speed_modifier`, `danger_level`, `reason`, `active_since_fictional_time`, `created_at`, `updated_at`, `deleted_at`).
-    3. `lws_ambient_population_archetypes`: World-level authored ambient templates (`id`, `lws_id`, `world_id`, `archetype_key`, `name`, `description`, `roles`, `weight`, `location_filter_tags`, `time_filter_buckets`, `created_at`, `updated_at`, `deleted_at`).
-    4. `lws_simulation_character_tiers`: Character tier classification and cognitive budgeting (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `tier`, `cognitive_budget`, `is_promoted`, `assigned_fictional_time`, `created_at`, `updated_at`).
-    5. `lws_promoted_entities`: Immutable causal promotion ledger (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `source_transient_id`, `source_archetype_key`, `promotion_reason`, `causal_event_id`, `promoted_to_tier`, `promoted_at_fictional_time`, `created_at`).
+    1. `lws_location_environments`: Location environmental conditions (`id`, `lws_id`, `simulation_id`, `location_id`, `weather`, `temperature_baseline`, `temperature_celsius`, `temperature_override`, `lighting_level`, `lighting_override`, `noise_level`, `is_indoor`, `air_quality`, `hazards`, `last_evaluated_fictional_time`, `created_at`, `updated_at`).
+    2. `lws_location_operational_states`: Dynamic location operational statuses (`id`, `lws_id`, `simulation_id`, `location_id`, `access_status`, `access_override`, `operating_hours`, `crowd_density`, `ambient_capacity`, `created_at`, `updated_at`).
+    3. `lws_ambient_archetypes`: World-level authored ambient templates (`id`, `lws_id`, `world_id`, `archetype_key`, `entity_kind`, `role_title`, `name_pool`, `description_template`, `default_activities`, `location_tags`, `time_windows`, `weather_compat`, `spawn_weight`, `max_concurrent_instances`, `created_at`, `updated_at`, `deleted_at`).
+    4. `lws_simulation_character_tiers`: Character tier classification and cognitive budgeting (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `tier`, `cognitive_budget`, `is_promoted`, `created_at`, `updated_at`).
+    5. `lws_promoted_entity_records`: Immutable causal promotion ledger (`id`, `lws_id`, `simulation_id`, `simulation_character_id`, `source_archetype_key`, `source_transient_id`, `origin_location_id`, `promotion_reason`, `causal_event_id`, `promoted_to_tier`, `fictional_time`, `created_at`).
   - Exactly 15 Phase 9 triggers (85 cumulative across Phase 4–9 tables, 95 cumulative across all tables):
-    1. `trg_lws_env_profiles_immutability`: Blocks mutating `simulation_id` and `location_id`.
-    2. `trg_lws_env_profiles_same_sim`: Validates that location belongs to simulation's world.
-    3. `trg_lws_env_profiles_no_delete`: Prohibits direct physical `DELETE` (requires soft-delete).
-    4. `trg_lws_op_states_immutability`: Blocks mutating `simulation_id` and `location_id`.
-    5. `trg_lws_op_states_same_sim`: Validates location belongs to simulation's world.
-    6. `trg_lws_op_states_no_delete`: Prohibits direct physical `DELETE`.
-    7. `trg_lws_archetypes_world_immutable`: Blocks mutating `world_id`.
-    8. `trg_lws_archetypes_no_delete`: Prohibits direct physical `DELETE`.
-    9. `trg_lws_char_tiers_immutability`: Blocks mutating `simulation_id` and `simulation_character_id`.
-    10. `trg_lws_char_tiers_same_sim`: Validates character belongs to simulation.
-    11. `trg_lws_char_tiers_no_delete`: Prohibits direct physical `DELETE`.
-    12. `trg_lws_promoted_entities_same_sim`: Validates character and causal event belong to simulation.
-    13. `trg_lws_promoted_entities_immutability`: Blocks mutating `simulation_id` and `simulation_character_id`.
-    14. `trg_lws_promoted_entities_no_update`: Prohibits UPDATE on promoted entities ledger.
-    15. `trg_lws_promoted_entities_no_delete`: Prohibits direct physical `DELETE` on promoted entities ledger.
+    1. `trg_lws_loc_env_same_sim`: Validates location belongs to simulation's world on environment insertion.
+    2. `trg_lws_loc_env_immutability`: Blocks mutating `lws_id`, `simulation_id`, and `location_id` on environments.
+    3. `trg_lws_loc_env_no_delete`: Prohibits direct physical `DELETE` on `lws_location_environments`.
+    4. `trg_lws_loc_ops_same_sim`: Validates location belongs to simulation's world on operational state insertion.
+    5. `trg_lws_loc_ops_immutability`: Blocks mutating `lws_id`, `simulation_id`, and `location_id` on operational states.
+    6. `trg_lws_loc_ops_no_delete`: Prohibits direct physical `DELETE` on `lws_location_operational_states`.
+    7. `trg_lws_ambient_archetypes_no_delete`: Prohibits direct physical `DELETE` on `lws_ambient_archetypes` (requires soft-delete).
+    8. `trg_lws_promoted_records_same_sim`: Validates character, origin location, and causal event belong to simulation on promotion insertion.
+    9. `trg_lws_promoted_records_no_update`: Prohibits `UPDATE` on immutable `lws_promoted_entity_records`.
+    10. `trg_lws_promoted_records_no_delete`: Prohibits direct physical `DELETE` on `lws_promoted_entity_records`.
+    11. `trg_lws_char_tiers_same_sim`: Validates character belongs to simulation on character tier insertion.
+    12. `trg_lws_char_tiers_immutability`: Blocks mutating `lws_id`, `simulation_id`, and `simulation_character_id` on character tiers.
+    13. `trg_lws_char_tiers_no_delete`: Prohibits direct physical `DELETE` on `lws_simulation_character_tiers`.
+    14. `trg_lws_loc_env_unique`: Prevents duplicate environment rows per simulation and location.
+    15. `trg_lws_loc_ops_unique`: Prevents duplicate operational state rows per simulation and location.
   - Exactly 10 new indexes (51 cumulative across Phase 4–9 tables):
-    1. `idx_lws_env_profiles_sim_loc`: Unique index on `lws_location_environmental_profiles(simulation_id, location_id) WHERE deleted_at IS NULL`.
-    2. `idx_lws_env_profiles_sim`: Index on `lws_location_environmental_profiles(simulation_id)`.
-    3. `idx_lws_op_states_sim_loc`: Index on `lws_location_operational_states(simulation_id, location_id) WHERE deleted_at IS NULL`.
-    4. `idx_lws_op_states_sim_time`: Index on `lws_location_operational_states(simulation_id, active_since_fictional_time DESC)`.
-    5. `idx_lws_archetypes_world_key`: Unique index on `lws_ambient_population_archetypes(world_id, archetype_key) WHERE deleted_at IS NULL`.
-    6. `idx_lws_archetypes_world`: Index on `lws_ambient_population_archetypes(world_id)`.
-    7. `idx_lws_char_tiers_sim_char`: Unique index on `lws_simulation_character_tiers(simulation_id, simulation_character_id)`.
-    8. `idx_lws_char_tiers_sim_tier`: Index on `lws_simulation_character_tiers(simulation_id, tier)`.
-    9. `idx_lws_promoted_entities_sim_char`: Unique index on `lws_promoted_entities(simulation_id, simulation_character_id)`.
-    10. `idx_lws_promoted_entities_transient`: Index on `lws_promoted_entities(simulation_id, source_transient_id)`.
+    1. `idx_lws_loc_env_sim_loc`: Unique index on `lws_location_environments(simulation_id, location_id)`.
+    2. `idx_lws_loc_ops_sim_loc`: Unique index on `lws_location_operational_states(simulation_id, location_id)`.
+    3. `idx_lws_ambient_archetypes_world_key`: Unique index on `lws_ambient_archetypes(world_id, archetype_key) WHERE deleted_at IS NULL`.
+    4. `idx_lws_ambient_archetypes_world_tags`: Index on `lws_ambient_archetypes(world_id, entity_kind) WHERE deleted_at IS NULL`.
+    5. `idx_lws_promoted_records_sim_char`: Index on `lws_promoted_entity_records(simulation_id, simulation_character_id)`.
+    6. `idx_lws_promoted_records_sim_time`: Index on `lws_promoted_entity_records(simulation_id, fictional_time DESC)`.
+    7. `idx_lws_promoted_transient_unique`: Unique index on `lws_promoted_entity_records(simulation_id, source_transient_id)`.
+    8. `idx_lws_char_tiers_sim_char`: Unique index on `lws_simulation_character_tiers(simulation_id, simulation_character_id)`.
+    9. `idx_lws_char_tiers_sim_tier`: Index on `lws_simulation_character_tiers(simulation_id, tier)`.
+    10. `idx_lws_loc_env_weather`: Index on `lws_location_environments(simulation_id, weather)`.
   - Cumulative database inventory: Exactly 36 tables (1 Phase 1 table `lws_meta` + 9 Phase 2 tables + 2 Phase 3 tables + 2 Phase 4 tables + 2 Phase 5 tables + 5 Phase 6 tables + 5 Phase 7 tables + 5 Phase 8 tables + 5 Phase 9 tables = 36 total tables), exactly 85 triggers on Phase 4–9 tables (95 triggers system-wide), and exactly 51 indexes on Phase 4–9 tables.
-  - Pure in-memory zero-SQL replay engine expanded to fold all Phase 9 environment profiles, operational states, character tiers, and promoted entity records with 100% tested field-level parity against SQLite database state across all 14 authoritative simulation tables.
+  - Pure in-memory zero-SQL replay engine expanded to fold all Phase 9 environments, operational states, character tiers, and promoted entity records with 100% tested field-level parity against SQLite database state across all 20 simulation runtime tables and structures (21 parity verification steps).
 
 
 
